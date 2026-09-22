@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Javascript continueOnError="true" enabled="true" timeLimit="50" name="JS-CaptureStreamUsage">
+    <DisplayName>Capture usage from SSE events</DisplayName>
+    <!--
+      Runs once per server-sent event, inside the EventFlow, while bytes are still
+      flowing to the client.
+
+      timeLimit is deliberately tight. This executes on every event of every
+      stream, so it sits directly in the path of perceived responsiveness - a slow
+      policy here shows up as a stuttering answer.
+
+      continueOnError is true for the same reason the script swallows its own
+      exceptions: breaking a stream a user is actively reading is a worse outcome
+      than losing the meter for one call.
+    -->
+    <ResourceURL>jsc://stream-capture-usage.js</ResourceURL>
+</Javascript>

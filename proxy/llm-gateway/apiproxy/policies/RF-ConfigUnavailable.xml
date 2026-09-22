@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RaiseFault continueOnError="false" enabled="true" name="RF-ConfigUnavailable">
+    <DisplayName>503 - configuration unavailable</DisplayName>
+    <!--
+      Raised when the price table, the budget table or the runtime configuration
+      could not be read or parsed.
+
+      THIS IS ALWAYS FAIL-CLOSED, REGARDLESS OF THE CONFIGURED FAIL MODE, and the
+      distinction is worth being precise about because the two failures look
+      similar and deserve opposite treatment:
+
+        counter unreachable  -> we know what a call costs, we just cannot record
+                                it. Serving is a defensible choice, and the fail
+                                mode decides.
+
+        config unreachable   -> we do not know the prices, the budgets, the
+                                allowed models or the output ceiling. We cannot
+                                bound the cost of a single call, never mind a
+                                day's worth. There is no version of "serve
+                                anyway" that is a considered decision rather than
+                                an abdication.
+
+      503 with Retry-After, not 500: the condition is transient and the client
+      should retry.
+    -->
+    <FaultResponse>
+        <Set>
+            <Payload contentType="application/json">{
+  "error": {
+    "code": 503,
+    "status": "CONFIGURATION_UNAVAILABLE",
+    "message": "The gateway cannot price requests right now and will not serve traffic it cannot meter.",
+    "correlation_id": "{messageid}"
+  }
+}</Payload>
+            <StatusCode>503</StatusCode>
+            <ReasonPhrase>Service Unavailable</ReasonPhrase>
+            <Headers>
+                <Header name="Retry-After">30</Header>
+                <Header name="X-Correlation-Id">{messageid}</Header>
+            </Headers>
+        </Set>
+    </FaultResponse>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</RaiseFault>

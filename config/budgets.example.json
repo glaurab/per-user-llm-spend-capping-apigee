@@ -1,0 +1,33 @@
+{
+  "_documentation": "Per-tier and per-team spending caps, in whole currency units. Loaded into the KVM key 'budgets'. The gateway converts these to integer micro-units internally; you never write micro-units here. A caller whose tier claim matches nothing in 'tiers' is demoted to 'defaultTier' from runtime-config.json, never promoted. See docs/07-configuration.md.",
+
+  "currency": "USD",
+
+  "tiers": {
+    "standard": {
+      "userDaily": 2.00,
+      "userMonthly": 30.00
+    },
+    "elevated": {
+      "userDaily": 10.00,
+      "userMonthly": 150.00
+    },
+    "unmetered": {
+      "_note": "Not actually unmetered - there is no such thing here. The counter still runs and still records spend; the ceiling is simply set high enough that normal interactive use will not reach it. A genuinely absent cap would remove the only signal you have that something has gone wrong.",
+      "userDaily": 500.00,
+      "userMonthly": 5000.00
+    }
+  },
+
+  "teams": {
+    "_default": {
+      "daily": 100.00
+    },
+    "example-team-a": {
+      "daily": 250.00
+    },
+    "example-team-b": {
+      "daily": 50.00
+    }
+  }
+}

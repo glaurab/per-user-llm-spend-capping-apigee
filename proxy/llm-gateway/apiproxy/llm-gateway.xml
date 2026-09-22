@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<APIProxy revision="1" name="llm-gateway">
+    <DisplayName>LLM Gateway - Per-User Spend Capping</DisplayName>
+    <Description>
+        Enforces per-user, per-team monetary spend caps on Gemini traffic served
+        by the Gemini Enterprise Agent Platform (formerly Vertex AI).
+        The cap is expressed in currency micro-units; token usage reported by the model
+        is converted to cost using a price table held in a Key Value Map.
+    </Description>
+    <ProxyEndpoints>
+        <ProxyEndpoint>default</ProxyEndpoint>
+    </ProxyEndpoints>
+    <TargetEndpoints>
+        <TargetEndpoint>vertex</TargetEndpoint>
+    </TargetEndpoints>
+    <Resources>
+        <Resource>jsc://lib-pricing.js</Resource>
+        <Resource>jsc://lib-time.js</Resource>
+        <Resource>jsc://identity-build-keys.js</Resource>
+        <Resource>jsc://request-normalize.js</Resource>
+        <Resource>jsc://request-estimate-cost.js</Resource>
+        <Resource>jsc://quota-evaluate.js</Resource>
+        <Resource>jsc://response-reconcile-cost.js</Resource>
+        <Resource>jsc://stream-capture-usage.js</Resource>
+        <Resource>jsc://stream-finalize.js</Resource>
+        <Resource>jsc://budget-report.js</Resource>
+    </Resources>
+</APIProxy>

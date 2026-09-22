@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<DataCapture continueOnError="true" enabled="true" name="DC-CaptureUsage">
+    <DisplayName>Capture spend dimensions for analytics</DisplayName>
+    <!--
+      Publishes the dimensions of each call into Apigee analytics, so consumption
+      can be sliced by tier, team, model and outcome without leaving the Apigee UI.
+
+      The data collectors referenced here must exist in the organisation before
+      this policy will resolve them. The Terraform provider has no resource for
+      them, so scripts/deploy-proxy.sh creates them with apigeecli; the call is
+      idempotent. A missing collector is silently dropped, which is why
+      continueOnError is true - analytics is valuable, but never worth failing a
+      request that has already been served and charged.
+
+      The dc_ prefix is mandatory, not a naming convention: the data collector
+      API rejects names without it, and a policy referencing the unprefixed name
+      resolves to nothing at all - with no error, because of the continueOnError
+      above. Empty analytics charts with healthy traffic is the symptom.
+
+      NOTE ON WHAT IS AND IS NOT CAPTURED
+      ===================================
+      The subject identifier is recorded; the user's email address, name and the
+      prompt text are not. Apigee analytics has its own storage location, chosen
+      when the organisation was provisioned and not changeable afterwards. Putting
+      personal data or prompt content in here silently extends every data
+      residency obligation you have to that store - a decision most teams would
+      want to take deliberately rather than discover during an audit.
+
+      If your deployment needs to attribute spend to named individuals, hold the
+      mapping from subject id to person in a system you control, and join on it
+      there. See docs/04-identity.md and docs/09-observability.md.
+    -->
+    <Capture>
+        <DataCollector>dc_tier</DataCollector>
+        <Collect ref="cap.identity.tier" default="unknown"/>
+    </Capture>
+    <Capture>
+        <DataCollector>dc_team</DataCollector>
+        <Collect ref="cap.identity.team" default="unassigned"/>
+    </Capture>
+    <Capture>
+        <DataCollector>dc_subject</DataCollector>
+        <Collect ref="cap.identity.subject" default="unknown"/>
+    </Capture>
+    <Capture>
+        <DataCollector>dc_model</DataCollector>
+        <Collect ref="cap.usage.servedModel" default="unknown"/>
+    </Capture>
+    <Capture>
+        <DataCollector>dc_cost_micros</DataCollector>
+        <Collect ref="cap.cost.total.micros" default="0"/>
+    </Capture>
+    <Capture>
+        <DataCollector>dc_tokens_in</DataCollector>
+        <Collect ref="cap.usage.promptTokens" default="0"/>
+    </Capture>
+    <Capture>
+        <DataCollector>dc_tokens_out</DataCollector>
+        <Collect ref="cap.usage.candidatesTokens" default="0"/>
+    </Capture>
+    <Capture>
+        <DataCollector>dc_tokens_thoughts</DataCollector>
+        <Collect ref="cap.usage.thoughtsTokens" default="0"/>
+    </Capture>
+    <Capture>
+        <DataCollector>dc_tokens_cached</DataCollector>
+        <Collect ref="cap.usage.cachedTokens" default="0"/>
+    </Capture>
+    <Capture>
+        <DataCollector>dc_decision</DataCollector>
+        <Collect ref="cap.decision.reason" default="allowed"/>
+    </Capture>
+</DataCapture>

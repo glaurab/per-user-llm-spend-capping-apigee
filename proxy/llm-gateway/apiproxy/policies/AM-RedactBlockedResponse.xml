@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="true" enabled="true" name="AM-RedactBlockedResponse">
+    <DisplayName>Replace a response Model Armor flagged</DisplayName>
+    <!--
+      Replaces the generated content when response screening found a match.
+
+      Note this REPLACES rather than faults. The call happened, the tokens were
+      generated and billed, and the budget has already been charged for them - so
+      the caller should still see a well-formed response explaining what happened,
+      and their budget should still reflect what was actually consumed. Turning
+      this into a 500 would hide a real charge behind an apparent error.
+    -->
+    <Set>
+        <Payload contentType="application/json">{
+  "error": {
+    "code": 451,
+    "status": "CONTENT_BLOCKED",
+    "message": "The generated response was withheld by content screening policy.",
+    "detail": "The call was executed and has been charged against your budget."
+  }
+}</Payload>
+        <StatusCode>451</StatusCode>
+        <ReasonPhrase>Unavailable For Legal Reasons</ReasonPhrase>
+    </Set>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+    <AssignTo createNew="false" transport="http" type="response"/>
+</AssignMessage>

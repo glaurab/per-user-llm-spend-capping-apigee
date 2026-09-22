@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<KeyValueMapOperations continueOnError="true" enabled="true" name="KVM-LoadBudgets" mapIdentifier="llm-gateway-config">
+    <DisplayName>Load budget table</DisplayName>
+    <!--
+      Per-tier user budgets and per-team budgets, in display currency units.
+      JS-BuildIdentityKeys converts them to integer micro-units for the counters.
+
+      Budgets are separated from the price table on purpose. They change for
+      different reasons, on different schedules, and usually by different people:
+      prices are dictated by the vendor, budgets are decided by whoever owns the
+      spend. Keeping them in separate keys means a budget change cannot
+      accidentally clobber a price correction, and the audit trail for each is
+      independent.
+    -->
+    <Scope>environment</Scope>
+    <ExpiryTimeInSecs>300</ExpiryTimeInSecs>
+    <Get assignTo="cap.raw.budgets" index="1">
+        <Key>
+            <Parameter>budgets</Parameter>
+        </Key>
+    </Get>
+</KeyValueMapOperations>

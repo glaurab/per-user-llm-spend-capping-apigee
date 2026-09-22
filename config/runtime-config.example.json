@@ -1,0 +1,61 @@
+{
+  "_documentation": "Everything the gateway needs to know that is not a price or a budget. Loaded into the KVM key 'runtime-config'. Changes take effect within the KVM cache TTL (300s by default) with no redeploy. Every field is explained, with its blast radius, in docs/07-configuration.md.",
+
+  "failMode": "open-degraded",
+
+  "features": {
+    "enforce": true,
+    "preflightCountTokens": true,
+    "modelArmorEnabled": false
+  },
+
+  "degraded": {
+    "_note": "Only used when failMode is 'open-degraded' AND the quota counters are unreachable. Traffic is served, but forced onto the cheapest model with a short output ceiling, so an outage of the counter store cannot become an unbounded spend event.",
+    "model": "gemini-3.5-flash-lite",
+    "maxOutputTokens": 512
+  },
+
+  "vertex": {
+    "_note": "endpointHost must be the exact scheme+host of the inference endpoint you intend to use. The three forms are NOT interchangeable and one of them is asymmetric - see docs/11-regions-and-residency.md before changing this. scripts/preflight-check.sh resolves whatever you put here and fails loudly if it does not exist.",
+    "endpointHost": "https://REGION-aiplatform.googleapis.com",
+    "projectId": "your-inference-project-id",
+    "location": "REGION",
+    "publisher": "google"
+  },
+
+  "limits": {
+    "_note": "maxOutputTokens is the single most important number in this file. The gateway overwrites the client's requested value with it, which is what makes worst-case overshoot a stateable figure: maxOutputTokens x the output price of the most expensive allowed model. Raising it raises how far a single call can push a caller past their cap.",
+    "maxOutputTokens": 2048,
+    "maxPromptChars": 200000
+  },
+
+  "allowedModels": [
+    "gemini-3.5-flash-lite",
+    "gemini-3.7-flash",
+    "gemini-3.1-pro"
+  ],
+
+  "identity": {
+    "_note": "Claim names differ between identity providers; none of these are standard except 'sub'. tierClaim and teamClaim may be absent, in which case every caller lands on defaultTier and defaultTeam. Point subjectClaim at a stable opaque identifier, not an email address - docs/04-identity.md explains what that choice costs you if you get it wrong.",
+    "subjectClaim": "sub",
+    "tierClaim": "llm_tier",
+    "teamClaim": "llm_team",
+    "defaultTier": "standard",
+    "defaultTeam": "unassigned"
+  },
+
+  "period": {
+    "_note": "Defines when 'today' starts for every caller. 'zone' is an IANA name and is used when the runtime's JS engine has full ICU data. 'offsetMinutes' plus 'dstWindows' is the explicit fallback for when it does not: base offset from UTC, plus the intervals during which a different offset applies. Leave dstWindows empty for zones that do not observe daylight saving. The gateway reports which strategy it actually used in cap.period.strategy - check it once after deploying rather than assuming.",
+    "zone": "UTC",
+    "offsetMinutes": 0,
+    "dstWindows": []
+  },
+
+  "modelArmor": {
+    "_note": "Only consulted when features.modelArmorEnabled is true. Content screening is a separate, optional service; it is off by default so that the spend cap - the thing this gateway exists for - has no dependency on it.",
+    "projectId": "",
+    "location": "",
+    "templateId": "",
+    "maxChars": 40000
+  }
+}

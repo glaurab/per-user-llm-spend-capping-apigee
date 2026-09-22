@@ -1,0 +1,432 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ProxyEndpoint name="default">
+    <Description>
+        Public contract:
+          POST {base}/v1/models/{model}:generateContent
+          POST {base}/v1/models/{model}:streamGenerateContent
+          GET  {base}/v1/budget
+          GET  {base}/v1/models
+
+        Deliberately small. Anything not listed here falls through to the
+        NotFound flow and is refused - see RF-NotFound for why an open path is a
+        metering bypass.
+    </Description>
+
+    <!--
+      ============================================================================
+      PREFLOW - every request, before route-specific flows.
+
+      THE ORDER IS THE DESIGN. Each step depends on the one before it:
+
+        1. extract the token        (SpikeArrest needs a key to throttle on)
+        2. throttle                 (before spending effort on verification)
+        3. verify the token         (identity must be trustworthy before it is
+                                     used as a quota key)
+        4. load configuration       (prices, budgets, limits)
+        5. derive identity + keys   (needs both the claims and the config)
+        6. fail fast on unusable state
+
+      Moving verification before throttling would let a flood of invalid tokens
+      hammer signature checking. Moving key derivation before verification would
+      key the budget on an unverified claim, which is the whole cap defeated by
+      editing a string.
+      ============================================================================
+    -->
+    <PreFlow name="PreFlow">
+        <Request>
+            <Step>
+                <Name>EV-ExtractBearerToken</Name>
+            </Step>
+            <Step>
+                <Name>SA-SpikeArrest</Name>
+            </Step>
+            <Step>
+                <Name>VJ-VerifyIdToken</Name>
+            </Step>
+
+            <Step>
+                <Name>KVM-LoadRuntimeConfig</Name>
+            </Step>
+            <Step>
+                <Name>KVM-LoadPricing</Name>
+            </Step>
+            <Step>
+                <Name>KVM-LoadBudgets</Name>
+            </Step>
+
+            <Step>
+                <Name>JS-BuildIdentityKeys</Name>
+            </Step>
+
+            <!-- Unusable state. Both are fail-closed and neither is negotiable:
+                 traffic that cannot be priced, or cannot be attributed to a user,
+                 is not served. -->
+            <Step>
+                <Name>RF-ConfigUnavailable</Name>
+                <Condition>cap.decision.reason = "CONFIG_UNAVAILABLE"</Condition>
+            </Step>
+            <Step>
+                <Name>RF-IdentityMissing</Name>
+                <Condition>cap.decision.reason = "IDENTITY_MISSING"</Condition>
+            </Step>
+        </Request>
+        <Response/>
+    </PreFlow>
+
+    <Flows>
+        <!--
+          ========================================================================
+          GET /v1/budget - budget introspection.
+
+          Runs the same quota policies as the enforcement path, with weight 0.
+          Reading your budget must never cost budget; the smoke test asserts it.
+          ========================================================================
+        -->
+        <Flow name="GetBudget">
+            <Condition>(proxy.pathsuffix MatchesPath "/v1/budget") and (request.verb = "GET")</Condition>
+            <Request>
+                <Step>
+                    <Name>AM-SetZeroWeight</Name>
+                </Step>
+                <Step>
+                    <Name>QU-BudgetUserDaily</Name>
+                </Step>
+                <Step>
+                    <Name>QU-BudgetUserMonthly</Name>
+                </Step>
+                <Step>
+                    <Name>QU-BudgetTeamDaily</Name>
+                </Step>
+                <Step>
+                    <Name>JS-BudgetReport</Name>
+                </Step>
+                <Step>
+                    <Name>AM-ReturnBudgetReport</Name>
+                </Step>
+            </Request>
+            <Response/>
+        </Flow>
+
+        <!--
+          ========================================================================
+          GET /v1/models - the allowed model catalogue.
+          ========================================================================
+        -->
+        <Flow name="GetModels">
+            <Condition>(proxy.pathsuffix MatchesPath "/v1/models") and (request.verb = "GET")</Condition>
+            <Request>
+                <Step>
+                    <Name>AM-ReturnModelCatalogue</Name>
+                </Step>
+            </Request>
+            <Response/>
+        </Flow>
+
+        <!--
+          ========================================================================
+          POST /v1/models/{model}:generateContent - the primary enforcement path.
+
+          The request leg charges the input cost and decides. The response leg
+          charges the remainder and never decides. See QU-BudgetUserDaily for why
+          the same quota policies appear in both.
+          ========================================================================
+        -->
+        <Flow name="GenerateContent">
+            <Condition>(proxy.pathsuffix MatchesPath "/v1/models/*") and (request.verb = "POST") and (proxy.pathsuffix ~~ ".*:generateContent$")</Condition>
+            <Request>
+                <Step>
+                    <Name>EV-ExtractModel</Name>
+                </Step>
+                <Step>
+                    <Name>JS-NormalizeRequest</Name>
+                </Step>
+
+                <!-- Cheap rejections first, before anything is charged or called. -->
+                <Step>
+                    <Name>RF-MalformedBody</Name>
+                    <Condition>cap.decision.reason = "MALFORMED_BODY"</Condition>
+                </Step>
+                <Step>
+                    <Name>RF-ModelNotAllowed</Name>
+                    <Condition>cap.model.allowed = false</Condition>
+                </Step>
+                <Step>
+                    <Name>RF-PromptTooLarge</Name>
+                    <Condition>cap.request.oversized = true</Condition>
+                </Step>
+
+                <!-- Free, exact input token count. See SC-CountTokens. -->
+                <Step>
+                    <Name>SC-CountTokens</Name>
+                    <Condition>cap.config.preflightCountTokens = "true"</Condition>
+                </Step>
+                <Step>
+                    <Name>JS-EstimateRequestCost</Name>
+                </Step>
+                <Step>
+                    <Name>RF-NotMeterable</Name>
+                    <Condition>cap.decision.reason = "MODEL_NOT_PRICED"</Condition>
+                </Step>
+
+                <!-- Charge the input side; decide. -->
+                <Step>
+                    <Name>QU-BudgetUserDaily</Name>
+                </Step>
+                <Step>
+                    <Name>QU-BudgetUserMonthly</Name>
+                </Step>
+                <Step>
+                    <Name>QU-BudgetTeamDaily</Name>
+                </Step>
+                <Step>
+                    <Name>JS-EvaluateQuota</Name>
+                </Step>
+                <Step>
+                    <Name>RF-BudgetExceeded</Name>
+                    <Condition>cap.decision.reason = "BUDGET_EXCEEDED"</Condition>
+                </Step>
+                <Step>
+                    <Name>RF-NotMeterable</Name>
+                    <Condition>(cap.decision.deny = true) and (cap.decision.reason != "BUDGET_EXCEEDED")</Condition>
+                </Step>
+
+                <!-- Content screening, after the budget decision: screening calls
+                     cost money, and a caller about to be refused should not
+                     trigger one. -->
+                <Step>
+                    <Name>SC-SanitizeUserPrompt</Name>
+                    <Condition>cap.config.modelArmorEnabled = "true"</Condition>
+                </Step>
+                <Step>
+                    <Name>EV-ArmorPromptVerdict</Name>
+                    <Condition>cap.config.modelArmorEnabled = "true"</Condition>
+                </Step>
+                <Step>
+                    <Name>RF-PromptBlocked</Name>
+                    <Condition>cap.armor.prompt.matchState = "MATCH_FOUND"</Condition>
+                </Step>
+
+                <Step>
+                    <Name>AM-BuildVertexRequest</Name>
+                </Step>
+            </Request>
+
+            <Response>
+                <Step>
+                    <Name>JS-ReconcileResponseCost</Name>
+                </Step>
+
+                <!-- Charge the remainder. Skipped entirely when the delta is zero,
+                     which avoids a pointless distributed counter round trip on
+                     cached or zero-output responses. -->
+                <Step>
+                    <Name>QU-BudgetUserDaily</Name>
+                    <Condition>cap.weight.micros GreaterThan 0</Condition>
+                </Step>
+                <Step>
+                    <Name>QU-BudgetUserMonthly</Name>
+                    <Condition>cap.weight.micros GreaterThan 0</Condition>
+                </Step>
+                <Step>
+                    <Name>QU-BudgetTeamDaily</Name>
+                    <Condition>cap.weight.micros GreaterThan 0</Condition>
+                </Step>
+
+                <Step>
+                    <Name>SC-SanitizeModelResponse</Name>
+                    <Condition>cap.config.modelArmorEnabled = "true"</Condition>
+                </Step>
+                <Step>
+                    <Name>EV-ArmorResponseVerdict</Name>
+                    <Condition>cap.config.modelArmorEnabled = "true"</Condition>
+                </Step>
+                <Step>
+                    <Name>AM-RedactBlockedResponse</Name>
+                    <Condition>cap.armor.response.matchState = "MATCH_FOUND"</Condition>
+                </Step>
+
+                <Step>
+                    <Name>AM-AddBudgetHeaders</Name>
+                </Step>
+                <Step>
+                    <Name>DC-CaptureUsage</Name>
+                </Step>
+            </Response>
+        </Flow>
+
+        <!--
+          ========================================================================
+          POST /v1/models/{model}:streamGenerateContent
+
+          Identical enforcement on the request leg. The difference is entirely on
+          the way back: usage metadata arrives inside the event stream rather than
+          in a response body, so reconciliation reads what EventFlow captured.
+
+          Response screening is absent here on purpose - see
+          SC-SanitizeModelResponse and docs/08-streaming.md.
+          ========================================================================
+        -->
+        <Flow name="StreamGenerateContent">
+            <Condition>(proxy.pathsuffix MatchesPath "/v1/models/*") and (request.verb = "POST") and (proxy.pathsuffix ~~ ".*:streamGenerateContent$")</Condition>
+            <Request>
+                <Step>
+                    <Name>EV-ExtractModel</Name>
+                </Step>
+                <Step>
+                    <Name>JS-NormalizeRequest</Name>
+                </Step>
+                <Step>
+                    <Name>RF-MalformedBody</Name>
+                    <Condition>cap.decision.reason = "MALFORMED_BODY"</Condition>
+                </Step>
+                <Step>
+                    <Name>RF-ModelNotAllowed</Name>
+                    <Condition>cap.model.allowed = false</Condition>
+                </Step>
+                <Step>
+                    <Name>RF-PromptTooLarge</Name>
+                    <Condition>cap.request.oversized = true</Condition>
+                </Step>
+                <Step>
+                    <Name>SC-CountTokens</Name>
+                    <Condition>cap.config.preflightCountTokens = "true"</Condition>
+                </Step>
+                <Step>
+                    <Name>JS-EstimateRequestCost</Name>
+                </Step>
+                <Step>
+                    <Name>RF-NotMeterable</Name>
+                    <Condition>cap.decision.reason = "MODEL_NOT_PRICED"</Condition>
+                </Step>
+                <Step>
+                    <Name>QU-BudgetUserDaily</Name>
+                </Step>
+                <Step>
+                    <Name>QU-BudgetUserMonthly</Name>
+                </Step>
+                <Step>
+                    <Name>QU-BudgetTeamDaily</Name>
+                </Step>
+                <Step>
+                    <Name>JS-EvaluateQuota</Name>
+                </Step>
+                <Step>
+                    <Name>RF-BudgetExceeded</Name>
+                    <Condition>cap.decision.reason = "BUDGET_EXCEEDED"</Condition>
+                </Step>
+                <Step>
+                    <Name>RF-NotMeterable</Name>
+                    <Condition>(cap.decision.deny = true) and (cap.decision.reason != "BUDGET_EXCEEDED")</Condition>
+                </Step>
+                <Step>
+                    <Name>SC-SanitizeUserPrompt</Name>
+                    <Condition>cap.config.modelArmorEnabled = "true"</Condition>
+                </Step>
+                <Step>
+                    <Name>EV-ArmorPromptVerdict</Name>
+                    <Condition>cap.config.modelArmorEnabled = "true"</Condition>
+                </Step>
+                <Step>
+                    <Name>RF-PromptBlocked</Name>
+                    <Condition>cap.armor.prompt.matchState = "MATCH_FOUND"</Condition>
+                </Step>
+                <Step>
+                    <Name>AM-BuildVertexRequest</Name>
+                </Step>
+            </Request>
+
+            <!--
+              Runs per server-sent event, without buffering the stream. This is
+              validation gate #3 - confirm the behaviour on your Apigee version
+              before relying on it. docs/08-streaming.md has the test and the
+              fallback.
+            -->
+            <EventFlow name="SSE" content-type="text/event-stream">
+                <Response>
+                    <Step>
+                        <Name>JS-CaptureStreamUsage</Name>
+                    </Step>
+                </Response>
+            </EventFlow>
+
+            <Response>
+                <Step>
+                    <Name>JS-FinalizeStreamCost</Name>
+                </Step>
+                <Step>
+                    <Name>QU-BudgetUserDaily</Name>
+                    <Condition>cap.weight.micros GreaterThan 0</Condition>
+                </Step>
+                <Step>
+                    <Name>QU-BudgetUserMonthly</Name>
+                    <Condition>cap.weight.micros GreaterThan 0</Condition>
+                </Step>
+                <Step>
+                    <Name>QU-BudgetTeamDaily</Name>
+                    <Condition>cap.weight.micros GreaterThan 0</Condition>
+                </Step>
+                <Step>
+                    <Name>DC-CaptureUsage</Name>
+                </Step>
+            </Response>
+        </Flow>
+
+        <!-- Terminal catch-all. Must be last: flows are evaluated in order and
+             this one has no condition, so it matches anything that got here. -->
+        <Flow name="NotFound">
+            <Request>
+                <Step>
+                    <Name>RF-NotFound</Name>
+                </Step>
+            </Request>
+            <Response/>
+        </Flow>
+    </Flows>
+
+    <!--
+      Logging runs here, after the client already has its response, so the cost of
+      writing the ledger is off the user's critical path. PostClientFlow also runs
+      for faulted requests, so refusals are recorded as well as successes - a
+      429 that leaves no trace is a 429 nobody can investigate.
+    -->
+    <PostClientFlow>
+        <Response>
+            <Step>
+                <Name>ML-LogSpend</Name>
+            </Step>
+        </Response>
+    </PostClientFlow>
+
+    <HTTPProxyConnection>
+        <BasePath>/llm</BasePath>
+        <VirtualHost>secure</VirtualHost>
+    </HTTPProxyConnection>
+
+    <!-- The introspection endpoints are answered inside the proxy. A route rule
+         with no TargetEndpoint terminates the request locally. -->
+    <RouteRule name="no-route-introspection">
+        <Condition>(proxy.pathsuffix MatchesPath "/v1/budget") or (proxy.pathsuffix MatchesPath "/v1/models")</Condition>
+    </RouteRule>
+    <RouteRule name="default">
+        <TargetEndpoint>vertex</TargetEndpoint>
+    </RouteRule>
+
+    <!--
+      Catches faults nobody planned for: a policy that threw, a target that
+      refused the connection, an expired token rejected by VerifyJWT. Without
+      this, those surface as raw Apigee fault JSON, which leaks policy names to
+      the caller and gives client code a second error shape to parse.
+
+      The condition excludes faults raised by this proxy's own RaiseFault
+      policies. Each of those (RF-BudgetExceeded and friends) already wrote a
+      complete, purpose-built body; running AM-ErrorEnvelope over the top would
+      replace an actionable "you have X remaining, resets in Y seconds" with a
+      generic message.
+    -->
+    <DefaultFaultRule name="default-fault">
+        <Step>
+            <Name>AM-ErrorEnvelope</Name>
+        </Step>
+        <Condition>NOT (fault.name = "RaiseFault")</Condition>
+    </DefaultFaultRule>
+</ProxyEndpoint>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Javascript continueOnError="true" enabled="true" timeLimit="200" name="JS-FinalizeStreamCost">
+    <DisplayName>Reconcile actual cost (streaming)</DisplayName>
+    <!--
+      Turns whatever JS-CaptureStreamUsage observed into a quota weight.
+
+      If no usage was ever seen - the stream was abandoned, or EventFlow did not
+      run - it charges a conservative ceiling instead of nothing. Charging nothing
+      would make "send an expensive prompt, close the tab" a free call, which is
+      the easiest bypass in the entire design and one users find by accident.
+    -->
+    <IncludeURL>jsc://lib-pricing.js</IncludeURL>
+    <ResourceURL>jsc://stream-finalize.js</ResourceURL>
+</Javascript>

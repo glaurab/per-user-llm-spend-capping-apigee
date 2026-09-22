@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<KeyValueMapOperations continueOnError="true" enabled="true" name="KVM-LoadRuntimeConfig" mapIdentifier="llm-gateway-config">
+    <DisplayName>Load runtime configuration</DisplayName>
+    <!--
+      Runtime switches, Agent Platform target shape, allowed models, per-call limits and
+      the fail mode. Stored as one JSON document under a single key.
+
+      WHY A KVM AND NOT PROXY PROPERTIES
+      ==================================
+      Everything in here is something an operator may need to change under time
+      pressure: raise an output ceiling, drop a model from the allowlist, flip
+      enforcement off during an incident. A KVM edit takes effect within the cache
+      window; a proxy property change requires a bundle rebuild, a redeploy and a
+      revision bump. Configuration that is expensive to change does not get
+      changed - it gets worked around.
+
+      expiryTimeInSecs is the propagation delay for a config edit. 300s trades a
+      five-minute lag for a very large reduction in KVM reads. Lower it if you
+      need faster rollback; see docs/12-operations-runbook.md.
+
+      continueOnError is true so that a KVM read failure reaches
+      JS-BuildIdentityKeys, which turns it into an explicit, legible 503 rather
+      than an opaque policy fault. Missing configuration is always fail-closed:
+      traffic that cannot be priced is not served.
+    -->
+    <Scope>environment</Scope>
+    <ExpiryTimeInSecs>300</ExpiryTimeInSecs>
+    <Get assignTo="cap.raw.runtimeConfig" index="1">
+        <Key>
+            <Parameter>runtime-config</Parameter>
+        </Key>
+    </Get>
+</KeyValueMapOperations>

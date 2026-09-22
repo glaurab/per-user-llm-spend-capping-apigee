@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ServiceCallout continueOnError="true" enabled="true" name="SC-SanitizeModelResponse">
+    <DisplayName>Model Armor - screen the response</DisplayName>
+    <!--
+      Companion to SC-SanitizeUserPrompt, applied to the generated text.
+
+      Note that this runs on the unary flow only. Screening a streamed response is
+      a genuinely different problem: by the time the objectionable content has
+      been generated, part of it has already reached the user's screen. Screening
+      per-event either delays every chunk until it has been checked - which
+      removes the point of streaming - or checks too late to matter.
+
+      Deployments that need response screening AND streaming generally have to
+      choose one. See docs/08-streaming.md.
+    -->
+    <Request clearPayload="true" variable="capArmorResponseRequest">
+        <Set>
+            <Verb>POST</Verb>
+            <Path>/v1/projects/{cap.armor.project}/locations/{cap.armor.location}/templates/{cap.armor.template}:sanitizeModelResponse</Path>
+            <Payload contentType="application/json">{"modelResponseData":{"text":"{cap.armor.responseText}"}}</Payload>
+        </Set>
+    </Request>
+    <Response>capArmorResponseResponse</Response>
+    <Timeout>5000</Timeout>
+    <HTTPTargetConnection>
+        <Authentication>
+            <GoogleAccessToken>
+                <Scopes>
+                    <Scope>https://www.googleapis.com/auth/cloud-platform</Scope>
+                </Scopes>
+            </GoogleAccessToken>
+        </Authentication>
+        <URL>@@MODEL_ARMOR_HOST@@</URL>
+    </HTTPTargetConnection>
+</ServiceCallout>

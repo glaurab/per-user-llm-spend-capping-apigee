@@ -1,0 +1,43 @@
+{
+  "_documentation": "Price table for the gateway's cost meter. Loaded into the KVM key 'pricing'. Every number under 'models' is CURRENCY UNITS PER 1,000,000 TOKENS, in the currency declared in budgets.json. The values below were taken from the published Gemini price list on 2026-08-16 for the Standard service tier on the global endpoint, in USD, for prompts at or below 200,000 input tokens. THEY ARE A SNAPSHOT, NOT A GUARANTEE - re-check every one against the Agent Platform pricing page for your models, region, service tier and commitment level before enforcing anything. A model id that does not match exactly is refused with 503 MODEL_NOT_PRICED, which is the intended behaviour. See docs/03-cost-model.md.",
+
+  "_priceListDate": "2026-08-16",
+  "_serviceTier": "standard",
+  "_endpoint": "global",
+
+  "_whatWouldMakeTheseWrong": [
+    "INTRODUCTORY RATE EXPIRY. gemini-3.7-flash is on introductory pricing through 2026-12-31. On 2027-01-01 it doubles to input 1.50, output 3.75 -> 7.50, cachedInput 0.15. Diary that date: the meter will under-charge by half from the first call of the new year and report nothing wrong. See docs/12-operations-runbook.md.",
+    "NON-GLOBAL ENDPOINTS. Since 2026-07-01 the GA Gemini 3 and later families are priced separately on non-global endpoints, roughly 10 percent above the global rate. runtime-config.json sets vertex.endpointHost to a REGION- host by default, so if you keep that default these numbers are about 10 percent low. Take the regional column from the pricing page rather than scaling these by hand.",
+    "LONG-CONTEXT TIER. gemini-3.1-pro charges input 4.00 and output 18.00 once the input context exceeds 200,000 tokens, and the higher rate then applies to every token in the call, not just the excess. This table has one rate per model and therefore assumes you stay under that threshold. limits.maxPromptChars is 200,000 characters, roughly 50,000 tokens, which keeps every request an order of magnitude clear of the cliff. If you raise maxPromptChars past about 800,000 characters, this table stops being safe and you need a context-tiered price lookup.",
+    "SERVICE TIER. Batch and Flex are half these rates; Priority is roughly 1.8x. Tuned model endpoints are 1.5x the base model. The gateway meters whatever tier your target endpoint actually uses, so the table has to match it."
+  ],
+
+  "unknownModelPolicy": "deny",
+
+  "thoughtsIncludedInCandidates": false,
+
+  "estimatedCharsPerToken": 4,
+  "estimateSafetyFactor": 1.15,
+  "estimatedTokensPerNonTextPart": 260,
+
+  "models": {
+    "gemini-3.5-flash-lite": {
+      "input": 0.30,
+      "output": 2.50,
+      "cachedInput": 0.03,
+      "thinking": 2.50
+    },
+    "gemini-3.7-flash": {
+      "input": 0.75,
+      "output": 3.75,
+      "cachedInput": 0.075,
+      "thinking": 3.75
+    },
+    "gemini-3.1-pro": {
+      "input": 2.00,
+      "output": 12.00,
+      "cachedInput": 0.20,
+      "thinking": 12.00
+    }
+  }
+}

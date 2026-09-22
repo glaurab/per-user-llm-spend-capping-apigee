@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<VerifyJWT continueOnError="false" enabled="true" name="VJ-VerifyIdToken">
+    <DisplayName>Verify caller ID token</DisplayName>
+    <!--
+      ========================================================================
+      THE FOUNDATION OF THE WHOLE DESIGN.
+
+      Every quota counter in this proxy is keyed on a claim taken from this
+      token. If the token can be forged, the cap can be bypassed by editing a
+      string. So this policy is not an authentication formality - it is the
+      integrity guarantee for the meter.
+
+      Three checks must all be present, and each one is load-bearing:
+
+        Signature  - proves the identity provider issued it
+        Issuer     - proves it was THAT provider, not another one whose tokens
+                     also happen to verify against a key we trust
+        Audience   - proves the token was minted for this gateway, and not
+                     borrowed from another service the same provider serves.
+                     Without it, any token from your IdP - including ones issued
+                     to unrelated low-trust applications - is accepted here.
+
+      Expiry is validated automatically and cannot be disabled.
+      ========================================================================
+
+      @@ placeholders are substituted at package time by scripts/deploy-proxy.sh.
+      They are build-time rather than runtime values because the JWKS URI,
+      issuer and audience are policy-level settings that Apigee resolves when the
+      policy loads, not per request. See docs/07-configuration.md.
+    -->
+    <Algorithm>RS256</Algorithm>
+    <Source>cap.auth.token</Source>
+
+    <PublicKey>
+        <!--
+          Keys are fetched from the provider's JWKS endpoint and cached by the
+          runtime, so provider key rotation is picked up without a redeploy.
+          Never pin a single public key here: the next rotation becomes an outage.
+        -->
+        <JWKS uri="@@OIDC_JWKS_URI@@"/>
+    </PublicKey>
+
+    <Issuer>@@OIDC_ISSUER@@</Issuer>
+    <Audience>@@OIDC_AUDIENCE@@</Audience>
+
+    <!--
+      Claims the gateway depends on. Requiring their PRESENCE here (rather than
+      discovering they are missing in JavaScript) means a misconfigured identity
+      provider produces an immediate, legible 401 instead of traffic that meters
+      against an empty key.
+    -->
+    <AdditionalClaims>
+        <Claim name="sub" type="string"/>
+    </AdditionalClaims>
+
+    <IgnoreUnresolvedVariables>false</IgnoreUnresolvedVariables>
+</VerifyJWT>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Javascript continueOnError="false" enabled="true" timeLimit="200" name="JS-BuildIdentityKeys">
+    <DisplayName>Build identity and quota keys</DisplayName>
+    <!--
+      Derives the caller identity, tier, team and budgets, and builds the three
+      period-stamped quota identifiers. Everything downstream depends on the
+      variables this sets, so it runs in the PreFlow, immediately after the JWT
+      has been verified and configuration has been loaded.
+    -->
+    <IncludeURL>jsc://lib-time.js</IncludeURL>
+    <ResourceURL>jsc://identity-build-keys.js</ResourceURL>
+</Javascript>

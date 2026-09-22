@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="true" enabled="true" name="AM-AddBudgetHeaders">
+    <DisplayName>Attach budget headers to the response</DisplayName>
+    <!--
+      Tells the client what this call cost and what is left, on every successful
+      response.
+
+      This is what lets a client application render a running balance without
+      polling /v1/budget, and it is the difference between a user who paces
+      themselves and a user who is surprised by a 429 in the middle of a task.
+
+      The headers also make the meter auditable from the outside: anyone can
+      compare the reported cost of a call against the model's own usage figures
+      and check that the gateway is charging what it claims to charge. A meter
+      nobody can verify is a meter nobody should trust.
+    -->
+    <Set>
+        <Headers>
+            <Header name="X-Budget-Currency">{cap.budget.currency}</Header>
+            <Header name="X-Budget-Call-Cost">{cap.cost.display}</Header>
+            <Header name="X-Budget-Remaining">{cap.budget.remainingAfter.display}</Header>
+            <Header name="X-Budget-Period-Resets-In">{cap.period.resetSeconds}</Header>
+            <Header name="X-Budget-Enforcement">{cap.config.enforce}</Header>
+            <!-- Present only when the counters were unreachable and the fail mode
+                 let the call through. A client seeing this knows its spend was
+                 not metered, and an operator seeing it in the logs knows the
+                 counter store had a bad minute. -->
+            <Header name="X-Budget-Degraded">{cap.counter.degraded}</Header>
+        </Headers>
+    </Set>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+    <AssignTo createNew="false" transport="http" type="response"/>
+</AssignMessage>

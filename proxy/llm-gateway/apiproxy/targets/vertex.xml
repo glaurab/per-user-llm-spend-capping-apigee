@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<TargetEndpoint name="vertex">
+    <Description>
+        Gemini Enterprise Agent Platform (formerly Vertex AI) generative model
+        endpoint.
+
+        The host is NOT hardcoded. AM-BuildVertexRequest sets the `target.url` flow
+        variable from runtime configuration, which lets the same proxy bundle target
+        a regional, multi-region or global inference endpoint without a rebuild.
+
+        Endpoint hostname forms differ by tier and getting this wrong produces an
+        opaque DNS failure rather than a useful error:
+
+          regional          https://{region}-aiplatform.googleapis.com
+          multi-region      https://aiplatform.{jurisdiction}.rep.googleapis.com
+          global            https://aiplatform.googleapis.com
+
+        Note the multi-region form is `aiplatform.{j}.rep...`, NOT `{j}-aiplatform...`.
+        See docs/11-regions-and-residency.md.
+    </Description>
+
+    <PreFlow name="PreFlow">
+        <Request/>
+        <Response/>
+    </PreFlow>
+
+    <HTTPTargetConnection>
+        <!--
+          Placeholder only. Overridden per request by the `target.url` flow variable
+          set in AM-BuildVertexRequest. Kept syntactically valid so the bundle
+          imports cleanly.
+        -->
+        <URL>https://aiplatform.googleapis.com</URL>
+
+        <!--
+          The Apigee runtime service account authenticates to Agent Platform. No API key,
+          no static credential, nothing to leak. The service account must hold a role
+          containing aiplatform.endpoints.predict, and ideally nothing else.
+          See docs/10-security.md.
+        -->
+        <Authentication>
+            <GoogleAccessToken>
+                <Scopes>
+                    <Scope>https://www.googleapis.com/auth/cloud-platform</Scope>
+                </Scopes>
+            </GoogleAccessToken>
+        </Authentication>
+
+        <Properties>
+            <!-- Generation can be slow; the default 55s is not enough for long
+                 completions. Keep this above the slowest expected unary call. -->
+            <Property name="io.timeout.millis">300000</Property>
+            <Property name="connect.timeout.millis">10000</Property>
+            <Property name="supports.http11">true</Property>
+            <!-- Required so SSE chunks are relayed as they arrive rather than
+                 accumulated. Without this, streaming degrades to a slow unary call. -->
+            <Property name="response.streaming.enabled">true</Property>
+            <Property name="request.streaming.enabled">true</Property>
+        </Properties>
+    </HTTPTargetConnection>
+</TargetEndpoint>

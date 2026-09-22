@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RaiseFault continueOnError="false" enabled="true" name="RF-IdentityMissing">
+    <DisplayName>401 - no meterable identity</DisplayName>
+    <!--
+      The token verified, but it carries no subject claim to meter against.
+
+      This is a 401 rather than a 500 because the problem is with the credential
+      presented, not with the gateway - but it is worth being clear in the message
+      that the token was VALID and still unusable, because "401" plus a token the
+      client knows is freshly minted otherwise sends everyone hunting for a
+      signature problem that does not exist.
+
+      In practice this almost always means the identity provider is issuing tokens
+      without the claim the gateway is configured to read - a mapping problem in
+      the IdP, not in the client.
+    -->
+    <FaultResponse>
+        <Set>
+            <Payload contentType="application/json">{
+  "error": {
+    "code": 401,
+    "status": "IDENTITY_MISSING",
+    "message": "The token is valid but carries no subject claim, so consumption cannot be attributed to a user.",
+    "detail": "Check that your identity provider includes the configured subject claim in issued tokens.",
+    "correlation_id": "{messageid}"
+  }
+}</Payload>
+            <StatusCode>401</StatusCode>
+            <ReasonPhrase>Unauthorized</ReasonPhrase>
+        </Set>
+    </FaultResponse>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</RaiseFault>

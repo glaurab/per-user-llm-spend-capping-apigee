@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="true" enabled="true" name="AM-ErrorEnvelope">
+    <DisplayName>Normalize unhandled faults</DisplayName>
+    <!--
+      Catch-all in the DefaultFaultRule.
+
+      Two jobs, both about not leaking:
+
+      1. Give every unhandled fault the same JSON shape as the deliberate ones, so
+         client error handling has a single contract rather than one path for
+         faults the gateway anticipated and another for faults it did not.
+
+      2. Strip internal detail. Apigee's default fault bodies name the policy that
+         failed and often quote flow variables. That is a description of the
+         gateway's internal structure handed to whoever provoked the error, and it
+         is exactly what someone probing for a bypass wants. The correlation id
+         lets an operator find the full detail in the logs; the caller gets
+         nothing they can build on.
+    -->
+    <Set>
+        <Payload contentType="application/json">{
+  "error": {
+    "code": {message.status.code},
+    "status": "GATEWAY_ERROR",
+    "message": "The request could not be completed.",
+    "correlation_id": "{messageid}"
+  }
+}</Payload>
+    </Set>
+    <Set>
+        <Headers>
+            <Header name="X-Correlation-Id">{messageid}</Header>
+        </Headers>
+    </Set>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+    <AssignTo createNew="false" transport="http" type="response"/>
+</AssignMessage>

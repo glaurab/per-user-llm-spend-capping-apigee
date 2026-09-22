@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ExtractVariables continueOnError="true" enabled="true" name="EV-ArmorPromptVerdict">
+    <DisplayName>Read the prompt screening verdict</DisplayName>
+    <!--
+      Pulls the match state out of the Model Armor callout response.
+
+      IgnoreUnresolvedVariables is true and the default is NO_MATCH_FOUND, which
+      means a screening call that failed or timed out lets the request through.
+
+      That is a deliberate fail-open, and it is the opposite of how the budget
+      counters behave - so it is worth saying why. Content screening here is a
+      defence-in-depth layer, not the primary control; the model's own safety
+      settings remain in force underneath it. Failing closed would make an
+      optional, off-by-default enhancement into a hard dependency capable of
+      taking the whole gateway down.
+
+      If your deployment treats screening as mandatory rather than
+      defence-in-depth, change this default to MATCH_FOUND and the behaviour
+      inverts. That is a one-word change, and it should be a documented decision
+      either way.
+    -->
+    <Source clearPayload="false">capArmorPromptResponse</Source>
+    <VariablePrefix>cap.armor.prompt</VariablePrefix>
+    <JSONPayload>
+        <Variable name="matchState" type="string">
+            <JSONPath>$.sanitizationResult.filterMatchState</JSONPath>
+        </Variable>
+    </JSONPayload>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</ExtractVariables>

@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Quota continueOnError="true" enabled="true" name="QU-BudgetUserDaily" type="flexi">
+    <DisplayName>Budget - user, daily</DisplayName>
+    <!--
+      ==========================================================================
+      READ THIS ONE. The other two quota policies are the same mechanism applied
+      to a different scope, and are commented only where they differ.
+      ==========================================================================
+
+      WHAT IS BEING COUNTED
+      =====================
+      Not requests. Not tokens. Integer MICRO-UNITS OF CURRENCY (1e-6 of a unit).
+      MessageWeight carries the cost of the call, computed by the JavaScript that
+      runs immediately before each attachment of this policy.
+
+      A token counter would be simpler, and meaningless: a Pro token and a Flash
+      token differ in price by more than an order of magnitude, so "50,000 tokens
+      a day" describes a budget that varies 10-20x depending on which model the
+      user happens to pick. Counting money counts the thing anyone actually cares
+      about. See docs/03-cost-model.md.
+
+      WHY THIS POLICY IS ATTACHED TWICE
+      =================================
+      Look at proxies/default.xml: this exact policy appears once in the Request
+      flow and once in the Response flow. That is not duplication - it is the
+      mechanism.
+
+      The cost of an LLM call is not knowable before it runs, so the charge is
+      split across the two legs of the request:
+
+        Request leg   MessageWeight = input cost      (exact, from countTokens)
+                      -> also the point at which an over-budget caller is refused
+        Response leg  MessageWeight = actual total - already charged
+                      -> always >= 0, so no refund is ever needed
+
+      Apigee keys a quota counter on the policy name plus the identifier, so both
+      attachments address the SAME counter. Two separately-named policies would
+      produce two independent counters and the reconciliation would be lost.
+
+      -> This behaviour is validation gate #1. Confirm it on your Apigee version
+         before going to production. docs/13-validation-gates.md gives the test
+         and the fallback.
+
+      WHY type="flexi"
+      ================
+      "calendar" resets every counter in the environment at one shared instant
+      derived from a UTC StartTime. For any timezone other than UTC that instant
+      falls in the middle of somebody's working day, handing them a fresh budget
+      halfway through it. Daylight saving makes it worse, twice a year.
+
+      "flexi" starts a counter when its identifier is first seen and runs for the
+      interval. Combined with an identifier that carries the caller-local date
+      (below), each counter covers exactly one local day and then expires on its
+      own. The boundary is correct in every timezone and DST is a non-issue.
+
+      The interval is 2 days rather than 1 so that a counter created just before
+      local midnight is still alive for the whole of its own day. It is a lifetime
+      for a key that only receives traffic on one day, not a budget period - the
+      period is expressed by the identifier.
+
+      WHY continueOnError="true"
+      ==========================
+      So this policy never raises a fault. The allow/deny decision belongs to
+      JS-EvaluateQuota, which can see all three counters at once, distinguish
+      "over budget" from "counter unreachable", and build a 429 that tells the
+      caller which limit they hit and when it resets. A stock quota fault can do
+      none of that, and would also abort the response leg - where there is
+      nothing left to prevent, because the tokens have already been generated and
+      billed.
+
+      WHY count="0"
+      =============
+      It is the fallback if countRef cannot be resolved. A budget of zero refuses
+      everything. The alternative - defaulting to some permissive number - means a
+      broken budget table silently becomes unlimited spend. Fail closed on the
+      thing whose entire purpose is to say no.
+    -->
+
+    <!-- Identifier carries subject, tier and the caller-local date.
+         Format: u|{sub}|{tier}|D|YYYY-MM-DD
+         Built by JS-BuildIdentityKeys from a signature-verified JWT claim. -->
+    <Identifier ref="cap.key.user.daily"/>
+
+    <Allow countRef="cap.budget.user.daily.micros" count="0"/>
+
+    <Interval>2</Interval>
+    <TimeUnit>day</TimeUnit>
+
+    <!-- Cost of this call, in micro-units. Set by:
+           request leg  -> JS-EstimateRequestCost
+           response leg -> JS-ReconcileResponseCost / JS-FinalizeStreamCost
+           /v1/budget   -> AM-SetZeroWeight (reads without charging) -->
+    <MessageWeight ref="cap.weight.micros"/>
+
+    <!-- Distributed: one counter shared by every message processor, rather than
+         one per node. Without it, N nodes means N times the intended budget.
+         Synchronous: the counter is updated before the policy returns. Costs a
+         little latency and removes the race in which concurrent requests all read
+         a stale count and all pass. Both are required for a cap to be a cap. -->
+    <Distributed>true</Distributed>
+    <Synchronous>true</Synchronous>
+</Quota>

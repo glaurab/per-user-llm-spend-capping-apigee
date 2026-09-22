@@ -1,0 +1,1038 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Per-user LLM spend capping — Apigee X reference implementation</title>
+<style>
+/* ==========================================================================
+   Engineering-drawing paper, petrol ink, brass for money.
+   Brass means money. Signal means refusal. Nothing else uses either.
+   ========================================================================== */
+:root{
+  --paper:#EDF1F3;
+  --surface:#F7F9FA;
+  --petrol:#0E3A42;
+  --petrol-2:#14525C;
+  --petrol-3:#4A7480;
+  --brass:#B5811F;
+  --brass-lt:#E3B04B;
+  --brass-ink:#6E4C0E;
+  --signal:#C33C24;
+  --signal-ink:#9B2C17;
+  --rule:#C9D5D9;
+  --rule-soft:#DDE5E8;
+
+  --mono:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+
+  --gut:clamp(16px,3vw,32px);
+}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--paper);color:var(--petrol);
+  font-family:var(--sans);font-size:16px;line-height:1.55;
+  background-image:
+    linear-gradient(var(--rule-soft) 1px,transparent 1px),
+    linear-gradient(90deg,var(--rule-soft) 1px,transparent 1px);
+  background-size:28px 28px;
+}
+.wrap{max-width:1240px;margin:0 auto;padding:0 var(--gut)}
+
+/* ---------- type ---------- */
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--petrol-3);margin:0 0 18px}
+.eyebrow .author{text-transform:none;letter-spacing:.06em}
+h1{font-family:var(--mono);font-size:clamp(30px,5.6vw,62px);line-height:1;
+  letter-spacing:-.035em;font-weight:600;margin:0 0 14px}
+h1 .b{color:var(--brass-ink)}
+.thesis{font-family:var(--mono);font-size:clamp(14px,1.5vw,16.5px);line-height:1.45;
+  letter-spacing:0;color:var(--brass-ink);margin:0 0 22px;max-width:56ch;
+  border-left:2px solid var(--brass);padding-left:14px}
+.standfirst{font-size:clamp(16px,1.9vw,19px);max-width:62ch;margin:0;color:var(--petrol-2)}
+h2{font-family:var(--mono);font-size:13px;letter-spacing:.16em;text-transform:uppercase;
+  font-weight:600;margin:0 0 4px;color:var(--petrol)}
+h3{font-family:var(--mono);font-size:15px;letter-spacing:-.01em;margin:0 0 8px;font-weight:600}
+.sub{font-size:13px;color:var(--petrol-3);margin:0 0 18px;max-width:66ch}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* ---------- structure ---------- */
+.hero{padding:clamp(48px,9vw,104px) 0 clamp(26px,4vw,40px)}
+.band{border-top:1px solid var(--rule);padding:clamp(28px,4vw,44px) var(--gut) clamp(36px,6vw,60px);
+  margin:clamp(8px,2vw,16px) auto 0;max-width:1240px}
+.section{padding:0 var(--gut) clamp(36px,6vw,60px);max-width:1240px;margin:0 auto}
+.panel{background:var(--surface);border:1px solid var(--rule);border-radius:3px}
+
+/* ==========================================================================
+   THE METER — signature. Track spans cap + bounded overshoot, drawn to scale.
+   ========================================================================== */
+.meterwrap{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr)}
+.meters{padding:clamp(20px,3vw,30px)}
+.tape{border-left:1px solid var(--rule);padding:clamp(20px,3vw,30px);min-width:0}
+
+.meter{margin:0 0 20px}
+.meter:last-child{margin-bottom:0}
+.meter-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;
+  gap:4px 12px;margin-bottom:7px}
+.meter-name{font-family:var(--mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--petrol-2)}
+.meter-key{font-family:var(--mono);font-size:10.5px;color:var(--petrol-3);word-break:break-all}
+.meter-read{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:13px;white-space:nowrap}
+.meter-read b{font-weight:600;color:var(--brass-ink)}
+.meter-read span{color:var(--petrol-3)}
+/* the percentage and the increment chip are how a move stays legible on the two
+   meters whose caps are so large that the bar itself barely twitches */
+.meter-read em{font-style:normal;color:var(--petrol-3);margin-left:9px;font-size:11.5px}
+.meter-read em.bump{color:#fff;background:var(--brass-ink);padding:1px 6px;border-radius:2px;
+  animation:bump .45s ease-out}
+@keyframes bump{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
+.binding{display:none;font-family:var(--mono);font-size:9px;letter-spacing:.14em;
+  text-transform:uppercase;margin-left:9px;background:var(--brass);color:#fff;
+  padding:2px 6px;border-radius:2px;vertical-align:1px}
+.binding.on{display:inline-block}
+
+.track{position:relative;height:26px;background:#fff;border:1px solid var(--rule);
+  border-radius:2px;overflow:hidden}
+.fill{position:absolute;inset:0 auto 0 0;width:0;background:var(--brass-lt);
+  transition:width .55s cubic-bezier(.2,.7,.3,1)}
+/* the slice of track this one step just added — never thinner than 2px, or the
+   step that caused the move would be invisible on a monthly cap */
+.bumpmark{position:absolute;top:0;bottom:0;display:none;background:var(--brass-ink);
+  animation:flash .6s ease-out}
+@keyframes flash{0%{opacity:0}25%{opacity:1}100%{opacity:.9}}
+.fill.leg1{background:var(--brass);transition-duration:.2s}
+.fill.over{background:var(--signal)}
+.overband{position:absolute;top:0;bottom:0;right:0;border-left:1px dashed var(--signal);
+  background-image:repeating-linear-gradient(45deg,rgba(195,60,36,.22) 0 3px,transparent 3px 6px)}
+.capline{position:absolute;top:-3px;bottom:-3px;width:1px;background:var(--petrol);opacity:.55}
+.meter-foot{display:flex;justify-content:space-between;font-family:var(--mono);
+  font-size:10.5px;color:var(--petrol-3);margin-top:5px}
+
+.tape h3{margin-bottom:12px}
+.tapebody{font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums;
+  line-height:1.7;max-height:252px;overflow-y:auto}
+.tapeline{display:flex;justify-content:space-between;gap:10px;
+  border-bottom:1px dotted var(--rule);padding:3px 0}
+.tapeline .amt{white-space:nowrap;font-weight:600}
+.tapeline.charge .amt{color:var(--brass-ink)}
+.tapeline.deny .amt{color:var(--signal-ink)}
+.tapeline.info{color:var(--petrol-3)}
+.tapeline.total{border-bottom:none;border-top:2px solid var(--petrol);margin-top:6px;padding-top:6px}
+.tapeline.fresh{animation:freshrow .7s ease-out}
+@keyframes freshrow{0%{background:rgba(181,129,31,.30)}100%{background:transparent}}
+.tape-empty{font-family:var(--mono);font-size:12px;color:var(--petrol-3);margin:0}
+
+/* ---------- controls ---------- */
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:20px}
+button{font:inherit;cursor:pointer;border-radius:2px}
+.btn{font-family:var(--mono);font-size:12px;letter-spacing:.04em;text-transform:uppercase;
+  background:var(--petrol);color:var(--paper);border:1px solid var(--petrol);padding:9px 16px}
+.btn:hover{background:var(--petrol-2);border-color:var(--petrol-2)}
+.btn.ghost{background:transparent;color:var(--petrol);border-color:var(--rule)}
+.btn.ghost:hover{border-color:var(--petrol);background:#fff}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn.ghost:disabled:hover{background:transparent;border-color:var(--rule)}
+:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+
+/* ---------- guided steps ---------- */
+.step{margin:0}
+.stepnum{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--paper);background:var(--petrol);display:inline-block;padding:4px 11px;margin:0 0 12px}
+.step h2{font-size:15px;letter-spacing:.1em;margin-bottom:8px}
+.step .sub{margin-bottom:16px;font-size:14px;color:var(--petrol-2)}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(238px,1fr));gap:10px;margin:0 0 20px}
+.card{text-align:left;display:block;background:#fff;border:1px solid var(--rule);
+  padding:12px 14px;color:var(--petrol-2)}
+.card:hover{border-color:var(--petrol-3)}
+.card b{display:block;font-family:var(--mono);font-size:12.5px;letter-spacing:.02em;
+  color:var(--petrol);margin-bottom:4px}
+.card span{display:block;font-size:12.5px;line-height:1.4}
+.card[aria-pressed="true"]{background:var(--petrol);border-color:var(--petrol);color:#C6D6DA}
+.card[aria-pressed="true"] b{color:var(--brass-lt)}
+
+.setup{padding:18px 20px}
+.setup h3{margin-bottom:10px;color:var(--brass-ink)}
+/* the one sentence that orients the reader does not belong in a table cell */
+.setupnote{font-size:15px;line-height:1.5;max-width:72ch;margin:0 0 16px;color:var(--petrol-2)}
+.setup table{width:100%;border-collapse:collapse;font-size:13.5px}
+.setup td{border-bottom:1px solid var(--rule-soft);padding:7px 0;vertical-align:top}
+.setup td:first-child{width:215px;font-family:var(--mono);font-size:10.5px;letter-spacing:.11em;
+  text-transform:uppercase;color:var(--petrol-3);padding-right:18px;line-height:1.7}
+.setup td:last-child{font-variant-numeric:tabular-nums}
+.setup tr:last-child td{border-bottom:0}
+
+/* The counters scroll with the page. They were sticky at one point; pinning them
+   ate too much of the viewport and left the stage detail underneath unreadable. */
+.runner{border-top:1px solid var(--rule);padding-top:clamp(28px,4vw,44px)}
+.pinned{background:var(--paper)}
+
+/* ==========================================================================
+   STAGE EXPLORER
+   ========================================================================== */
+.explorer{display:grid;grid-template-columns:minmax(0,308px) minmax(0,1fr)}
+.rail{border-right:1px solid var(--rule);padding:10px 0 14px;max-height:760px;overflow-y:auto}
+.phase{font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--petrol-3);padding:15px 20px 6px}
+.phase:first-child{padding-top:6px}
+.phase em{font-style:normal;text-transform:none;letter-spacing:.02em;opacity:.85}
+/* what the step does is the label; the policy that does it is the subtitle */
+.stage{display:grid;grid-template-columns:26px 1fr;gap:9px;align-items:start;width:100%;
+  text-align:left;background:transparent;border:0;border-left:2px solid transparent;
+  padding:8px 20px;font-family:var(--sans);color:var(--petrol-2);line-height:1.4}
+.stage:hover{background:#fff}
+.stage .ix{font-family:var(--mono);color:var(--petrol-3);font-size:11px;padding-top:2px}
+.stage .lbl{display:block;min-width:0}
+.stage .t{display:block;font-size:13.5px;line-height:1.35;color:var(--petrol)}
+.stage .p{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.04em;
+  color:var(--petrol-3);margin-top:3px;word-break:break-word}
+.stage[aria-current="step"]{border-left-color:var(--brass);background:#fff}
+.stage[aria-current="step"] .t{font-weight:600}
+.stage.pending{opacity:.38}
+.stage.charge .ix{color:var(--brass-ink)}
+.stage.deny .t{color:var(--signal-ink)}
+.stage.skip{opacity:.5}
+.stage.skip .t{font-style:italic}
+.dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-left:6px;vertical-align:middle}
+.dot.c{background:var(--brass)}
+.dot.d{background:var(--signal)}
+
+.detail{padding:clamp(20px,3vw,32px);min-width:0}
+.detail-policy{display:inline-block;font-family:var(--mono);font-size:11px;letter-spacing:.06em;
+  background:var(--petrol);color:var(--paper);padding:4px 9px;margin-bottom:14px}
+.detail-policy.d{background:var(--signal)}
+.detail-policy.c{background:var(--brass-ink)}
+.detail h3{font-size:19px;font-family:var(--sans);letter-spacing:-.01em;margin-bottom:10px}
+.detail p{margin:0 0 14px;max-width:64ch}
+.pass{font-family:var(--mono);font-size:12.5px;color:var(--petrol-3);margin:0 0 16px}
+.why{border-left:2px solid var(--brass);background:#fff;padding:12px 16px;margin:0 0 16px;
+  font-size:14.5px;max-width:64ch}
+.why b{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+  display:block;color:var(--brass-ink);margin-bottom:4px;font-weight:600}
+.vars{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px;margin:0 0 16px}
+.vars td{border-bottom:1px solid var(--rule-soft);padding:5px 0;vertical-align:top}
+.vars td:first-child{color:var(--petrol-3);padding-right:18px;white-space:nowrap}
+.vars td:last-child{font-variant-numeric:tabular-nums;word-break:break-all}
+pre{font-family:var(--mono);font-size:12px;line-height:1.6;background:var(--petrol);color:#DCE8EA;
+  padding:14px 16px;overflow-x:auto;margin:0 0 16px;border-radius:2px}
+
+.zoom{border:1px solid var(--signal);background:#fff;padding:16px 18px;margin:0 0 16px}
+.zoom h4{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  margin:0 0 8px;color:var(--signal-ink)}
+.zoom p{font-size:14.5px;margin:0;max-width:64ch}
+.zoomtrack{position:relative;height:20px;background:var(--paper);border:1px solid var(--rule);
+  margin:12px 0 6px;overflow:hidden;
+  background-image:repeating-linear-gradient(45deg,rgba(195,60,36,.22) 0 3px,transparent 3px 6px)}
+.zoomtrack .z-fill{position:absolute;inset:0 auto 0 0;background:var(--signal);opacity:.85}
+.zoomscale{font-family:var(--mono);font-size:10.5px;color:var(--petrol-3);
+  display:flex;justify-content:space-between;gap:12px}
+
+.legend{display:flex;flex-wrap:wrap;gap:18px;font-family:var(--mono);font-size:11px;
+  color:var(--petrol-3);margin-top:18px}
+.legend i{display:inline-block;width:11px;height:11px;margin-right:6px;vertical-align:-1px}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:1px;
+  background:var(--rule);margin-top:18px;border:1px solid var(--rule)}
+.grid3 > div{background:var(--surface);padding:20px 22px}
+.grid3 p{margin:0;font-size:14.5px;color:var(--petrol-2)}
+kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--rule);border-bottom-width:2px;
+  padding:1px 5px;background:#fff;border-radius:2px}
+.foot{border-top:1px solid var(--rule);padding:26px var(--gut) 60px;max-width:1240px;margin:0 auto;
+  font-size:13px;color:var(--petrol-3)}
+.foot code{font-family:var(--mono);font-size:12px}
+
+@media (max-width:900px){
+  .meterwrap,.explorer{grid-template-columns:1fr}
+  .tape{border-left:0;border-top:1px solid var(--rule)}
+  .rail{border-right:0;border-bottom:1px solid var(--rule);max-height:250px}
+  .setup tr{display:block;border-bottom:1px solid var(--rule-soft);padding:6px 0}
+  .setup tr:last-child{border-bottom:0}
+  .setup td,.setup td:first-child{display:block;width:auto;border-bottom:0;padding:2px 0}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<header class="hero wrap">
+  <p class="eyebrow">Apigee X &middot; reference implementation
+    &middot; <span class="author">laurabouaziz@google.com</span></p>
+  <h1>Per-user LLM<br><span class="b">spend capping</span></h1>
+  <p class="thesis">One call, one cost — checked against the budget before the model runs,
+    then settled to the exact amount once the answer has been priced.</p>
+  <p class="standfirst">
+    What an answer costs is not known until the answer exists, so the decision to allow a call has
+    to be taken before the expensive half of it has been priced. This gateway meters one request at
+    two points against a single counter: on the way in it prices the input exactly and can still
+    refuse, and on the way out it adds only the difference between that and the real cost — never
+    more, and never a second refusal. It runs here as a simulation, in two steps: choose the
+    situation, then walk the call through it and watch the counters move.
+  </p>
+</header>
+
+<!-- ====================== STEP 1 · CHOOSE ====================== -->
+<section class="section">
+  <div class="step">
+    <p class="stepnum">Step 1 of 2 &nbsp;·&nbsp; your choice</p>
+    <h2>Pick the situation to simulate</h2>
+    <p class="sub">A scenario fixes two things before the call is made: <b>how much of this
+    user's budget is already spent</b>, and <b>what they are about to ask for</b>. Both are read
+    straight into the counters in step 2, so choosing here re-seeds the meter and rebuilds the
+    walkthrough from the beginning. The policies never change — only the outcome does.</p>
+    <div class="cards" id="chips" role="group" aria-label="Scenario"></div>
+    <div class="panel setup" id="setup" aria-live="polite"></div>
+  </div>
+</section>
+
+<!-- ====================== STEP 2 · RUN ====================== -->
+<div class="runner">
+  <section class="section" style="padding-bottom:0">
+    <div class="step">
+      <p class="stepnum">Step 2 of 2 &nbsp;·&nbsp; your controls</p>
+      <h2>Advance the call, one policy at a time</h2>
+      <p class="sub">The counters start at the three balances listed above. Press <b>Step</b> to
+      execute the next policy, or <b>Run the whole call</b> to play it end to end. Every charge
+      is written to the ledger on the right, and the stage list below explains what each policy
+      did and why it exists.</p>
+    </div>
+  </section>
+
+  <div class="pinned">
+    <section class="section" style="padding-bottom:16px">
+      <div class="panel meterwrap">
+        <div class="meters">
+          <h2>Counters</h2>
+          <p class="sub" id="scenarioname">Three run at once, charged on both legs. The most
+          constraining one decides.</p>
+          <div id="meters"></div>
+          <div class="legend">
+            <span><i style="background:var(--brass)"></i>request leg</span>
+            <span><i style="background:var(--brass-lt)"></i>response leg</span>
+            <span><i style="background:repeating-linear-gradient(45deg,rgba(195,60,36,.5) 0 2px,transparent 2px 4px);border:1px dashed var(--signal)"></i>bounded overshoot, to scale</span>
+          </div>
+        </div>
+        <div class="tape">
+          <h3>What this call cost (ledger)</h3>
+          <div class="tapebody" id="tape"></div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" id="run">Run the whole call</button>
+        <button class="btn ghost" id="prev">&#9664;&nbsp; Back</button>
+        <button class="btn ghost" id="next">Step &nbsp;&#9654;</button>
+        <button class="btn ghost" id="reset">Start over</button>
+        <span class="num" style="font-size:12px;color:var(--petrol-3)" id="pos"></span>
+      </div>
+    </section>
+  </div>
+
+  <section class="section">
+    <div class="panel explorer">
+      <div class="rail" id="rail" role="group" aria-label="Request stages"></div>
+      <div class="detail" id="detail" aria-live="polite"></div>
+    </div>
+    <p class="sub" style="margin:14px 0 0">
+      You can also select any stage in the list to jump straight to it. Once a stage is selected,
+      <kbd>&larr;</kbd> and <kbd>&rarr;</kbd> step through the call.
+    </p>
+  </section>
+</div>
+
+<!-- ====================== CLOSING ====================== -->
+<section class="band">
+  <h2>Three things the meter is showing you</h2>
+  <div class="grid3">
+    <div>
+      <h3>One policy, two attachments</h3>
+      <p>The same three <span class="num">QU-*</span> quota policies appear in the request flow and
+      again in the response flow. One policy object attached at two steps shares one counter — that
+      is what makes a split charge possible at all, and it is the first thing to verify against your
+      own Apigee version.</p>
+    </div>
+    <div>
+      <h3>Money, not tokens</h3>
+      <p>Counters hold integers of one millionth of a currency unit, and prices are stored per
+      million tokens, so cost is a bare multiplication. Under a token cap, a Pro call and a
+      Flash-Lite call subtract the same amount from a budget they cost very differently.</p>
+    </div>
+    <div>
+      <h3>Overshoot is a stated number</h3>
+      <p>The gateway overwrites <span class="num">maxOutputTokens</span> and clamps
+      <span class="num">candidateCount</span> to 1, so the furthest one call can push a caller past
+      their cap is the output ceiling times the dearest allowed output rate. That is the hatched
+      band, drawn to scale — <span id="boundpct">a fraction</span> of the daily cap.</p>
+      <p style="margin-top:10px;color:var(--petrol-3);font-size:13.5px">One honest caveat: on current
+      Gemini models reasoning depth is still a request parameter the client sets, and this
+      implementation does not pin it. The bound holds while thought tokens stay inside the forced
+      ceiling. Pin the thinking level too if you need it strict rather than indicative.</p>
+    </div>
+  </div>
+</section>
+
+<div class="foot">
+  <p>Presentation aid for the <code>llm-gateway</code> reference implementation. Every policy name,
+  flow variable, fault code and default shown here is taken from
+  <code>proxy/llm-gateway/apiproxy/</code> and the example configuration in <code>config/</code>.
+  Prices are the published Gemini list rates of <b>16 August 2026</b>, standard service tier, global
+  endpoint, USD per million tokens. Treat them as a snapshot, and note two things about them: the
+  <code>gemini-3.7-flash</code> figures are a <b>promotional 50% discount that runs until 1 January
+  2027</b>, so that model's real cost doubles the day the promotion ends, with no change on your side
+  to notice; and a <b>non-global endpoint carries a 10% premium</b> over the global rate, so the same
+  model and the same token count are priced differently depending on where the request is sent.
+  Re-check every rate against the pricing page before quoting a figure from this page.</p>
+  <p>The reasoning behind each step: <code>docs/02-architecture.md</code> for the lifecycle,
+  <code>docs/03-cost-model.md</code> for the arithmetic,
+  <code>docs/05-enforcement-semantics.md</code> for the split charge and the fail modes,
+  <code>docs/adr/</code> for why rather than how.</p>
+</div>
+
+<script>
+"use strict";
+/* ==========================================================================
+   Configuration — mirrors config/*.example.json.
+   ========================================================================== */
+/* Published Gemini list prices, standard tier, global endpoint, USD per 1M tokens,
+   as of 2026-08-16. The gemini-3.7-flash figures are a promotional 50% discount
+   running until 2027-01-01; the undiscounted rate is 1.50 / 7.50. A non-global
+   endpoint adds a 10% premium to any of these. */
+var PRICING = {
+  "gemini-3.5-flash-lite":{input:0.30,output:2.50,cachedInput:0.03, thinking:2.50},
+  "gemini-3.7-flash":     {input:0.75,output:3.75,cachedInput:0.075,thinking:3.75},
+  "gemini-3.1-pro":       {input:2.00,output:12.00,cachedInput:0.20,thinking:12.00}
+};
+var ALLOWED  = ["gemini-3.5-flash-lite","gemini-3.7-flash","gemini-3.1-pro"];
+var CEILING  = 2048;            // limits.maxOutputTokens
+var MAXCHARS = 200000;          // limits.maxPromptChars
+var CAPS = { userDaily:2000000, userMonthly:30000000, teamDaily:100000000 };
+var DAY="2026-08-13", MONTH="2026-08", SUB="7f3c9e2a", TIER="standard", TEAM="unassigned";
+var KEYS = {
+  userDaily:   "u|"+SUB+"|"+TIER+"|D|"+DAY,
+  userMonthly: "u|"+SUB+"|"+TIER+"|M|"+MONTH,
+  teamDaily:   "t|"+TEAM+"|D|"+DAY
+};
+/* the most one call can add beyond a cap */
+var OVERSHOOT = CEILING * Math.max.apply(null, ALLOWED.map(function(m){return PRICING[m].output;}));
+
+/* ==========================================================================
+   Scenarios
+   ========================================================================== */
+var SCENARIOS = [
+  { id:"normal", label:"Normal call",
+    hint:"Plenty of budget left. Both charge legs run and the call is served.",
+    note:"The worked example from the cost model: a 1250-token prompt, 900 of it served from cache, on the mid-tier model. Watch the reasoning tokens cost more than the visible answer.",
+    start:{userDaily:1100000,userMonthly:18400000,teamDaily:41200000},
+    req:{model:"gemini-3.7-flash",prompt:1250,cached:900,output:380,thoughts:410} },
+
+  { id:"nearly", label:"Nearly out of budget",
+    hint:"Just over 1 cent left. Allowed in, then ends past the cap — inside the bound.",
+    note:"Allowed with 1.4 cents left, on the dearest model. The bar crosses the cap line and stops inside the hatched band — this is the overshoot argument, happening.",
+    start:{userDaily:1986000,userMonthly:24500000,teamDaily:52000000},
+    req:{model:"gemini-3.1-pro",prompt:900,cached:0,output:1400,thoughts:600} },
+
+  { id:"over", label:"Over budget",
+    hint:"Daily cap already breached. Refused with 429 before the model is called.",
+    note:"The daily counter is already past its cap when the call arrives. Refused on the request leg, before the model is ever contacted.",
+    start:{userDaily:2000400,userMonthly:26100000,teamDaily:58000000},
+    req:{model:"gemini-3.7-flash",prompt:1250,cached:0,output:0,thoughts:0} },
+
+  { id:"model", label:"Disallowed model",
+    hint:"A model outside the allowlist. Refused with 403, no counter touched.",
+    note:"Refused at the allowlist — before any counter is touched, and before even the free countTokens call is made.",
+    start:{userDaily:400000,userMonthly:9100000,teamDaily:22000000},
+    req:{model:"gemini-4.0-ultra",prompt:600,cached:0,output:0,thoughts:0} },
+
+  { id:"stream", label:"Streaming, client disconnects",
+    hint:"The browser tab closes mid-answer. Charged at the ceiling, not at zero.",
+    note:"No terminal usage event ever arrives. The gateway charges the ceiling rather than nothing, because closing the tab must not be a way to get a free answer.",
+    start:{userDaily:820000,userMonthly:14000000,teamDaily:33000000},
+    req:{model:"gemini-3.7-flash",prompt:2100,cached:0,output:0,thoughts:0,stream:true} },
+
+  { id:"degraded", label:"Counters unreachable",
+    hint:"The quota store is down. Served on the cheapest model, and not metered.",
+    note:"failMode is open-degraded: the call is served, forced onto the cheapest model with a 512-token ceiling, and explicitly not metered.",
+    start:{userDaily:640000,userMonthly:11200000,teamDaily:28000000},
+    req:{model:"gemini-3.1-pro",prompt:1100,cached:0,output:500,thoughts:120,countersDown:true} }
+];
+
+/* ==========================================================================
+   Helpers
+   ========================================================================== */
+function money(m){ return "$"+(m/1e6).toFixed(6); }
+function money4(m){ return "$"+(m/1e6).toFixed(4); }
+/* one decimal, but only when there is one — 1537.5 stays exact, 1425 stays clean */
+function trim1(n){ return String(Math.round(n*10)/10); }
+function ceilInt(n){ return Math.ceil(n - 1e-9); }
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;"); }
+
+/* ==========================================================================
+   Trace builder — one array of stages per scenario.
+   Stage: {phase, policy, title, body, why, pass, vars, math, headers,
+           payload, charge, leg, ledger, deny, skip}
+   ========================================================================== */
+function buildTrace(sc){
+  var r = sc.req, steps = [], stopped = false;
+  var allowed = ALLOWED.indexOf(r.model) !== -1;
+  var model = r.model;
+  var rate = PRICING[model] || PRICING["gemini-3.7-flash"];
+  var ceiling = CEILING;
+  var down = !!r.countersDown;
+
+  function S(o){ if(!stopped){ steps.push(o); if(o.deny) stopped = true; } }
+
+  /* ---------------- PreFlow ---------------- */
+  S({phase:"PreFlow",policy:"EV-ExtractBearerToken",
+     title:"Pull the token out of the header",
+     body:"Reads the bearer token from the Authorization header into a flow variable. Nothing is verified yet, and nothing is trusted yet.",
+     why:"The next step throttles per caller, and it needs something to key on.",
+     vars:[["request.header.authorization","Bearer eyJhbGciOi…"]]});
+
+  S({phase:"PreFlow",policy:"SA-SpikeArrest",
+     title:"Throttle before verifying",
+     body:"Smooths bursts on the presented token. A caller can rotate tokens, so this is burst protection rather than access control — its real job is stopping one runaway client loop from draining a budget in seconds, and at that it works.",
+     why:"Placed before signature verification so a flood of invalid tokens cannot hammer the JWKS check.",
+     vars:[["rate","@@SPIKE_ARREST_RATE@@ (build-time placeholder)"]]});
+
+  S({phase:"PreFlow",policy:"VJ-VerifyIdToken",
+     title:"Verify signature, issuer, audience, expiry",
+     body:"Checks the OIDC token against the configured JWKS endpoint. Failure here is a 401 and is not configurable: a request nobody can be identified from is a request nobody can be charged for.",
+     why:"Identity must be trustworthy before it becomes a quota key. Move this after key-building and the whole cap is defeated by editing a string.",
+     vars:[["…claim.sub",SUB],["…claim.llm_tier",TIER],["…claim.llm_team",TEAM]]});
+
+  S({phase:"PreFlow",policy:"KVM-LoadRuntimeConfig · LoadPricing · LoadBudgets",
+     title:"Read configuration from the key value map",
+     body:"Three policies fetch prices, budgets and runtime settings, cached for 300 seconds. A price correction or an emergency budget rise takes effect in seconds, with no redeploy and no new revision.",
+     why:"A price hardcoded in a deployed artefact is a silent budget breach the day the vendor changes it: the meter keeps reporting confidently and is simply wrong.",
+     vars:[["cap.config.failMode","open-degraded"],["cap.config.enforce","true"],
+           ["cap.limits.maxOutputTokens",String(CEILING)],["cap.budget.currency","USD"]]});
+
+  S({phase:"PreFlow",policy:"JS-BuildIdentityKeys",
+     title:"Derive identity, resolve budgets, stamp the period into the keys",
+     body:"Resolves subject, tier and team from the verified claims, looks up the matching caps, computes today's date in the configured timezone, and builds the three counter identifiers with that period baked in.",
+     why:"The period lives in the key rather than in a calendar quota, so counters expire on their own and a local midnight is exact in any timezone. Daylight saving stops being a question.",
+     vars:[["cap.key.user.daily",KEYS.userDaily],["cap.key.user.monthly",KEYS.userMonthly],
+           ["cap.key.team.daily",KEYS.teamDaily],
+           ["cap.budget.userDaily.micros",String(CAPS.userDaily)],["cap.weight.micros","0"]]});
+
+  S({phase:"PreFlow",policy:"RF-ConfigUnavailable · RF-IdentityMissing",
+     title:"Fail closed on unusable state",
+     body:"Two guards, both non-negotiable: 503 if the configuration could not be read, 401 if no subject could be resolved.",
+     why:"Losing the counters is survivable — you can serve and degrade. Losing the configuration means not knowing what anything costs or how large one call may be, and there is no bounded way to serve that.",
+     pass:"Configuration loaded, subject resolved. Both guards pass."});
+
+  /* ---------------- Request flow ---------------- */
+  S({phase:"Request",policy:"EV-ExtractModel",
+     title:"Parse the model from the path",
+     body:"Captures the trailing path segment whole, then splits the model from the method.",
+     vars:[["cap.model.id",model],
+           ["cap.model.method",r.stream?"streamGenerateContent":"generateContent"]]});
+
+  S({phase:"Request",policy:"JS-NormalizeRequest",
+     title:"Check the allowlist, then rewrite the body",
+     body:"Validates the model, measures the prompt, and — the part that matters for spend — overwrites generationConfig.maxOutputTokens with the configured ceiling and clamps candidateCount to 1. The client's values are read and discarded.",
+     why:"Forcing the ceiling is what converts an unbounded overshoot into a number you can put in a governance document. Clamping candidateCount closes a multiplier the request-leg estimate cannot see: eight candidates cost eight times the output for an identical input charge. Reasoning depth is the one knob still left to the client, so the bound is exact only while thought tokens stay inside the forced ceiling — pin the thinking level as well if you need it strict.",
+     vars:[["cap.model.allowed",String(allowed)],
+           ["generationConfig.maxOutputTokens",CEILING+"  (client value discarded)"],
+           ["candidateCount","1"],
+           ["prompt characters",(r.prompt*4)+" of "+MAXCHARS]]});
+
+  if(!allowed){
+    S({phase:"Request",policy:"RF-ModelNotAllowed",
+       title:"403 — model is not in the allowlist",
+       body:"Refused before any counter is touched and before the free countTokens call is made. The body echoes what is allowed, so the caller can fix it without opening a ticket.",
+       why:"Cheap rejections come first. Nothing has been charged and nothing upstream has been contacted, so this refusal costs the organisation exactly nothing.",
+       deny:true,
+       payload:'{\n  "error": {\n    "code": 403,\n    "status": "MODEL_NOT_ALLOWED",\n    "message": "Model \''+model+'\' is not available through this gateway.",\n    "allowed": '+JSON.stringify(ALLOWED)+'\n  }\n}',
+       ledger:{label:"refused · model not allowed",amt:"403",cls:"deny"}});
+    return steps;
+  }
+
+  S({phase:"Request",policy:"RF-MalformedBody · RF-ModelNotAllowed · RF-PromptTooLarge",
+     title:"Cheap rejections, before anything is charged",
+     body:"Three guards in order: 400 if the body would not parse, 403 if the model is not allowed, 413 if the prompt exceeds maxPromptChars.",
+     why:"Each of these costs nothing to detect. Running them before countTokens and before the quota policies keeps a malformed request from consuming budget or an upstream call.",
+     pass:"Body parsed, model allowed, prompt within "+MAXCHARS+" characters. All three pass."});
+
+  S({phase:"Request",policy:"SC-CountTokens",
+     title:"Exact input size, free",
+     body:"A ServiceCallout to the :countTokens endpoint on Gemini Enterprise Agent Platform — the Google Cloud service that hosts the model, and the platform that was called Vertex AI until April 2026. The call is not billed, and it returns the same count the model itself will use. It is a synchronous round trip on every request, which is a real latency cost.",
+     why:"This is what makes the request leg exact rather than estimated, on the only leg where a mistake can wrongly refuse a user. If the callout fails, the gateway falls back to estimating from character count — which is why that is a fallback and not the primary path.",
+     vars:[["cap.tokens.promptEstimate",String(r.prompt)],["basis","countTokens (exact)"]]});
+
+  var reqMicros = ceilInt(r.prompt * rate.input);
+  S({phase:"Request",policy:"JS-EstimateRequestCost",
+     title:"Price the input side",
+     body:"Multiplies input tokens by the model's input rate. Prices are stored per million tokens and counters hold millionths of a currency unit, so the conversion is a bare multiplication with no scaling and no intermediate float.",
+     why:"There is no cachedContentTokenCount to work with yet — whether a cache hit occurs is not known until generation. So this leg charges the full input rate and the response leg corrects it downward. Erring high on the leg that can refuse, and correcting on the leg that cannot, is the right way round.",
+     vars:[["cap.weight.micros",String(reqMicros)],["cap.charged.request.micros",String(reqMicros)]],
+     math:"cost_micros = tokens × price_per_million\n            = "+r.prompt+" × "+rate.input+
+          "\n            = "+reqMicros+" micros   ("+money(reqMicros)+")"});
+
+  S({phase:"Request",policy:"RF-NotMeterable",
+     title:"503 — allowed but unpriceable",
+     body:"Fires when a model is on the allowlist but missing from the price table, and again later if a counter was unreachable while failMode is closed.",
+     why:"There is deliberately no option to serve an unpriced model for free. An unmetered path through the gateway appears the moment someone adds a model to the allowlist and forgets the price; refusing makes that mistake loud instead of invisible.",
+     pass:"A price exists for "+model+". Guard passes."});
+
+  /* ---------------- charge leg 1 ---------------- */
+  if(down){
+    S({phase:"Request",policy:"QU-BudgetUserDaily · UserMonthly · TeamDaily",
+       title:"All three counters time out",
+       body:"The quota policies carry continueOnError, so an unreachable counter does not fault the request outright. Nothing is recorded — the meter does not move, because there is no counter to move.",
+       why:"Faulting here would turn every counter blip into a total outage of AI access. What to do instead is decided deliberately in the next step, not as a side effect of an exception.",
+       charge:0,leg:1,
+       ledger:{label:"counters unreachable",amt:"not recorded",cls:"info"},
+       vars:[["cap.counter.userDaily","unavailable"],["continueOnError","true"]]});
+
+    S({phase:"Request",policy:"JS-EvaluateQuota",
+       title:"Apply the fail mode",
+       body:"No counter answered. failMode is open-degraded, so the call is served — but forced onto the cheapest allowed model with a 512-token output ceiling, and the response will carry X-Budget-Degraded so the client knows its spend was not metered.",
+       why:"Refusing everything on a counter outage turns a metering problem into an availability incident. Serving unchanged turns it into an unbounded spend event. Degrading is neither, which is why it is the default.",
+       vars:[["cap.counter.degraded","true"],
+             ["cap.model.id",model+"  →  gemini-3.5-flash-lite"],
+             ["maxOutputTokens","2048  →  512"]]});
+
+    model = "gemini-3.5-flash-lite"; rate = PRICING[model]; ceiling = 512;
+  } else {
+    S({phase:"Request",policy:"QU-BudgetUserDaily · UserMonthly · TeamDaily",
+       title:"Charge the input cost — leg 1",
+       body:"All three quota policies fire, each taking its MessageWeight from cap.weight.micros. They carry continueOnError so that an unreachable counter does not fault the request; the decision is made explicitly in the next step.",
+       why:"These are the same three policy objects that appear again in the response flow. One policy attached at two steps shares one counter — that is what a split charge is.",
+       charge:reqMicros,leg:1,
+       ledger:{label:"leg 1 · input, "+r.prompt+" tokens",amt:"+"+reqMicros+"µ",cls:"charge"},
+       vars:[["MessageWeight ref","cap.weight.micros = "+reqMicros]]});
+
+    var after = {
+      userDaily:   sc.start.userDaily   + reqMicros,
+      userMonthly: sc.start.userMonthly + reqMicros,
+      teamDaily:   sc.start.teamDaily   + reqMicros
+    };
+    var breach = null;
+    if(after.userDaily > CAPS.userDaily)
+      breach = {key:"userDaily",scope:"user",period:"daily",limit:CAPS.userDaily,used:after.userDaily};
+    else if(after.userMonthly > CAPS.userMonthly)
+      breach = {key:"userMonthly",scope:"user",period:"monthly",limit:CAPS.userMonthly,used:after.userMonthly};
+    else if(after.teamDaily > CAPS.teamDaily)
+      breach = {key:"teamDaily",scope:"team",period:"daily",limit:CAPS.teamDaily,used:after.teamDaily};
+
+    S({phase:"Request",policy:"JS-EvaluateQuota",
+       title:"Read all three counters, then decide",
+       body:"Reads every quota result rather than letting the first exceeded policy throw. That is what makes it possible to say which limit was hit, and to tell an over-budget caller apart from an unreachable counter.",
+       why:"A 429 that says only “over quota” when three quotas exist is a support ticket. The decision is made here, in one place; the fault policies only render it.",
+       vars:[["user · daily",  money4(after.userDaily)+"  /  "+money4(CAPS.userDaily)],
+             ["user · monthly",money4(after.userMonthly)+"  /  "+money4(CAPS.userMonthly)],
+             ["team · daily",  money4(after.teamDaily)+"  /  "+money4(CAPS.teamDaily)],
+             ["cap.decision.deny",String(!!breach)],
+             ["cap.decision.reason",breach?"BUDGET_EXCEEDED":"—"]]});
+
+    if(breach){
+      S({phase:"Request",policy:"RF-BudgetExceeded",
+         title:"429 — budget exhausted",
+         body:"The only part of this design most users will ever meet. It carries which limit was hit, how much has been used, when it resets in the caller's own timezone, and who to ask — because on a team-level breach the individual can do nothing at all and needs to know that immediately. Note that leg 1's charge has already landed: the counters are incremented and then read, which is inherent to counting before deciding.",
+         why:"429 rather than 403, because the condition is temporary and self-clearing — which is precisely what 429 means. A 403 tells a well-behaved client to stop retrying permanently.",
+         deny:true,
+         payload:'{\n  "error": {\n    "code": 429,\n    "status": "BUDGET_EXCEEDED",\n    "message": "Your '+breach.period+' '+breach.scope+' budget is exhausted.",\n    "limit": "'+breach.key+'",\n    "scope": "'+breach.scope+'",\n    "period": "'+breach.period+'",\n    "currency": "USD",\n    "limit_amount": "'+(breach.limit/1e6).toFixed(2)+'",\n    "used_amount": "'+(breach.used/1e6).toFixed(6)+'",\n    "resets_in_seconds": 24180,\n    "escalation": "@@ESCALATION_CONTACT@@",\n    "correlation_id": "rrt-4f21…"\n  }\n}',
+         headers:["Retry-After: 24180","X-Budget-Limit-Hit: "+breach.key,"X-Correlation-Id: rrt-4f21…"],
+         ledger:{label:"refused · "+breach.key,amt:"429",cls:"deny"}});
+      return steps;
+    }
+  }
+
+  S({phase:"Request",policy:"SC-SanitizeUserPrompt · EV-ArmorPromptVerdict · RF-PromptBlocked",
+     title:"Content screening — skipped",
+     body:"Model Armor is off by default (features.modelArmorEnabled is false), so none of these three run.",
+     why:"When it is on, it deliberately runs after the budget decision: screening calls cost money, and a caller about to be refused should not trigger one. The spend cap must never depend on an optional service being available.",
+     skip:true});
+
+  S({phase:"Request",policy:"AM-BuildVertexRequest",
+     title:"Rewrite to the Agent Platform path",
+     body:"Turns the public path into the Agent Platform path, sets target.url from configuration, and strips the caller's Authorization header. The gateway's own service account authenticates upstream.",
+     why:"Endpoint tier and region become a configuration change rather than a rebuild. Stripping the caller's header is the other half of the lockdown: the model must be reachable by the gateway identity and nothing else.",
+     vars:[["public","POST /v1/models/"+model+":"+(r.stream?"streamGenerateContent":"generateContent")],
+           ["target","…/publishers/google/models/"+model+":"+(r.stream?"streamGenerateContent":"generateContent")],
+           ["auth","gateway service account"]]});
+
+  /* ---------------- target + response ---------------- */
+  var total, basis, chargedReq = down ? 0 : reqMicros;
+
+  if(r.stream){
+    S({phase:"Target",policy:"Agent Platform",
+       title:"Stream the answer",
+       body:"The model streams server-sent events. Usage metadata rides on the events themselves rather than arriving in a response body.",
+       vars:[["content-type","text/event-stream"]]});
+
+    S({phase:"EventFlow",policy:"JS-CaptureStreamUsage",
+       title:"No usage event captured",
+       body:"Runs per event without buffering the stream, overwriting rather than accumulating — each event carries cumulative usage, so the last one seen is the total. Accumulating would multiply the charge by the event count. Here the client closed the connection first, so nothing was seen at all.",
+       why:"The answer was generated and billed upstream whether or not anyone read it. Charging nothing would make closing the tab the simplest bypass in the system.",
+       vars:[["cap.usage.captured","false"]]});
+
+    total = ceilInt(r.prompt*rate.input + ceiling*rate.output);
+    basis = "ceiling_fallback";
+    S({phase:"Response",policy:"JS-FinalizeStreamCost",
+       title:"Charge the ceiling",
+       body:"With no usage to price, the gateway charges the worst case it allowed: the input it counted, plus the forced output ceiling at the model's output rate. The ledger records the basis, so these rows can be found and audited later rather than blending into normal traffic.",
+       vars:[["cap.cost.basis",basis]],
+       math:"total = ceil( "+r.prompt+" × "+rate.input+"  +  "+ceiling+" × "+rate.output+" )\n"+
+            "      = "+total+" micros   ("+money(total)+")"});
+  } else {
+    S({phase:"Target",policy:"Agent Platform",
+       title:"Call the model",
+       body:"Forwarded with the gateway's service account — the only identity in the project permitted to call aiplatform.endpoints.predict. That IAM lockdown is what makes this gateway a control rather than a courtesy.",
+       vars:[["upstream","POST …:generateContent"]]});
+
+    var billableIn = r.prompt - r.cached;
+    var pIn = billableIn * rate.input,
+        pCa = r.cached   * rate.cachedInput,
+        pOu = r.output   * rate.output,
+        pTh = r.thoughts * rate.thinking;
+    total = ceilInt(pIn + pCa + pOu + pTh);
+    basis = "usage_metadata";
+    S({phase:"Response",policy:"JS-ReconcileResponseCost",
+       title:"Price what actually happened",
+       body:"Reads usageMetadata and prices each component at its own rate. Cached input is a subset of promptTokenCount and must be subtracted before the full input rate is applied. Thought tokens are billable, invisible to the caller, and routinely forgotten. The whole sum is rounded up once, at the end — rounding down would be a systematic under-charge on every call.",
+       why:"In this call the reasoning tokens cost "+(pTh>pOu?"more":"less")+" than the visible answer, "+
+            trim1(pTh)+" micros against "+trim1(pOu)+". A meter that ignored them would be wrong by a wide margin, and the error grows with every reasoning model added.",
+       vars:[["promptTokenCount",String(r.prompt)],["cachedContentTokenCount",String(r.cached)],
+             ["candidatesTokenCount",String(r.output)],["thoughtsTokenCount",String(r.thoughts)],
+             ["cap.cost.basis",basis]],
+       math:"billable input   "+billableIn+" × "+rate.input+"   = "+pIn+
+            "\ncached          "+r.cached+" × "+rate.cachedInput+"  = "+pCa+
+            "\ncandidates      "+r.output+" × "+rate.output+"   = "+pOu+
+            "\nthoughts        "+r.thoughts+" × "+rate.thinking+"   = "+pTh+
+            "\n                                 ceil → "+total+" micros"});
+  }
+
+  var delta = Math.max(0, total - chargedReq);
+
+  if(down){
+    S({phase:"Response",policy:"QU-BudgetUserDaily · UserMonthly · TeamDaily",
+       title:"Nothing to charge against",
+       body:"The counters are still unreachable, so the reconciled cost of "+money(total)+" is logged but never recorded against a budget. This is what degrading costs: the call was served, and this user's spend for it is missing from the meter.",
+       why:"It is a bounded loss and a visible one. The degraded flag is on the response, the basis is in the ledger row, and the alert has already fired.",
+       charge:0,leg:2,
+       ledger:{label:"leg 2 · not metered",amt:"—",cls:"info"}});
+  } else {
+    S({phase:"Response",policy:"QU-BudgetUserDaily · UserMonthly · TeamDaily",
+       title:"Charge the remainder — leg 2",
+       body:"delta = max(0, actual total − already charged). It is always non-negative, which is the property that lets this design avoid negative counter adjustments entirely. The step is skipped altogether when the delta is zero, sparing a pointless round trip to a distributed counter.",
+       why:"This leg never refuses, whatever the delta. The answer exists and was billed upstream the moment it was generated; discarding it would mean paying for it and delivering nothing.",
+       charge:delta,leg:2,
+       ledger:{label:"leg 2 · reconciled",amt:"+"+delta+"µ",cls:"charge"},
+       math:"delta = max(0, "+total+" − "+chargedReq+")  =  "+delta+" micros",
+       vars:[["cap.cost.total.micros",String(total)],["cap.weight.micros",String(delta)]]});
+  }
+
+  if(!r.stream){
+    S({phase:"Response",policy:"AM-AddBudgetHeaders",
+       title:"Tell the client what it cost",
+       body:"Every successful response carries the cost of the call and the balance remaining, so an application can show a running total without polling. GET /v1/budget is the pull counterpart: it reads the same three counters at weight zero and charges nothing.",
+       why:"This is the difference between a user who paces themselves and a user who is surprised by a 429 in the middle of a task. It also makes the meter auditable from outside — anyone can compare these figures against the model's own usage numbers.",
+       headers:["X-Budget-Currency: USD",
+                "X-Budget-Call-Cost: "+(total/1e6).toFixed(6),
+                "X-Budget-Remaining: "+((CAPS.userDaily - sc.start.userDaily - (down?0:total))/1e6).toFixed(6),
+                "X-Budget-Period-Resets-In: 24180",
+                "X-Budget-Enforcement: true"].concat(down?["X-Budget-Degraded: true"]:[])});
+  }
+
+  S({phase:"Response",policy:"DC-CaptureUsage",
+     title:"Dimensions into Apigee analytics",
+     body:"Tier, team, model and outcome captured as analytics dimensions, so spend can be sliced interactively without leaving the Apigee UI.",
+     vars:[["tier",TIER],["team",TEAM],["model",model],["outcome","success"]]});
+
+  S({phase:"PostClientFlow",policy:"ML-LogSpend",
+     title:"Write the ledger row",
+     body:"One structured JSON record to Cloud Logging, sinked to BigQuery. It runs after the client already has its response, so the write costs the user no latency — and it runs for faults too, because a 429 that leaves no trace is a 429 nobody can investigate.",
+     why:"Raw token counts are stored alongside the money, so history can be recomputed at new prices. This table is what you reconcile against the Cloud Billing invoice, and reconciling is how you find out the price table was wrong.",
+     ledger:{label:"total charged",amt: down ? "—" : money(total),cls:"total"},
+     math:'{ "cost": {\n    "charged_request_leg_micros":  '+chargedReq+',\n'+
+          '    "charged_response_leg_micros": '+(down?0:delta)+',\n'+
+          '    "total_micros":                '+total+',\n'+
+          '    "basis":                       "'+basis+'"'+
+          (down?',\n    "degraded":                    true':'')+'\n  } }'});
+
+  return steps;
+}
+
+/* ==========================================================================
+   State + rendering
+   ========================================================================== */
+var METERS = [
+  {key:"userDaily",   name:"User · daily",   cap:CAPS.userDaily,   id:KEYS.userDaily},
+  {key:"userMonthly", name:"User · monthly", cap:CAPS.userMonthly, id:KEYS.userMonthly},
+  {key:"teamDaily",   name:"Team · daily",   cap:CAPS.teamDaily,   id:KEYS.teamDaily}
+];
+var current = SCENARIOS[0], trace = [], cursor = 0, spent = {}, meterEls = {};
+
+/* Build the meter DOM once. Re-rendering it each step would destroy the
+   elements and the width transition would never run. */
+(function buildMeters(){
+  var host = document.getElementById("meters");
+  host.innerHTML = METERS.map(function(m){
+    var full = m.cap + OVERSHOOT;
+    return '<div class="meter">'+
+      '<div class="meter-head">'+
+        '<div><div class="meter-name">'+m.name+
+          '<span class="binding" data-bind="'+m.key+'">binding</span></div>'+
+        '<div class="meter-key">'+m.id+'</div></div>'+
+        '<div class="meter-read" data-read="'+m.key+'"></div>'+
+      '</div>'+
+      '<div class="track">'+
+        '<div class="fill" data-fill="'+m.key+'"></div>'+
+        '<div class="bumpmark" data-mark="'+m.key+'"></div>'+
+        '<div class="overband" style="width:'+(OVERSHOOT/full*100)+'%"></div>'+
+        '<div class="capline" style="left:'+(m.cap/full*100)+'%"></div>'+
+      '</div>'+
+      '<div class="meter-foot"><span>0</span><span>cap '+(m.cap/1e6).toFixed(2)+
+        ' &middot; bound +'+(OVERSHOOT/1e6).toFixed(4)+'</span></div>'+
+    '</div>';
+  }).join("");
+  METERS.forEach(function(m){
+    meterEls[m.key] = {
+      fill: host.querySelector('[data-fill="'+m.key+'"]'),
+      read: host.querySelector('[data-read="'+m.key+'"]'),
+      bind: host.querySelector('[data-bind="'+m.key+'"]'),
+      mark: host.querySelector('[data-mark="'+m.key+'"]')
+    };
+  });
+})();
+
+/* leg tints the fill; bump is the amount this one step just added, which is the
+   only thing that makes a charge legible on the monthly and team meters — their
+   caps are large enough that a real charge moves the bar by a fraction of a pixel. */
+function updateMeters(leg, bump){
+  bump = bump || 0;
+  var ratios = METERS.map(function(m){ return spent[m.key] / m.cap; });
+  var tightest = Math.max.apply(null, ratios);
+  METERS.forEach(function(m, ix){
+    var full = m.cap + OVERSHOOT, v = spent[m.key], el = meterEls[m.key];
+    el.fill.style.width = Math.min(100, v/full*100) + "%";
+    el.fill.className = "fill" + (v > m.cap ? " over" : (leg === 1 ? " leg1" : ""));
+    el.read.innerHTML = "<b>"+money4(v)+"</b> <span>/ "+(m.cap/1e6).toFixed(2)+"</span>"+
+      "<em>"+(100*v/m.cap).toFixed(2)+"% used</em>"+
+      (bump ? '<em class="bump">+'+bump+'&#181;</em>' : "");
+    el.bind.className = "binding" + (ratios[ix] === tightest ? " on" : "");
+    if(bump){
+      el.mark.style.display = "block";
+      el.mark.style.left  = Math.max(0, (v-bump)/full*100) + "%";
+      el.mark.style.width = "max(2px, "+(bump/full*100)+"%)";
+    } else {
+      el.mark.style.display = "none";
+    }
+  });
+}
+
+function applyTo(i){
+  spent = {userDaily:current.start.userDaily,
+           userMonthly:current.start.userMonthly,
+           teamDaily:current.start.teamDaily};
+  var leg = null;
+  for(var k=0;k<=i;k++){
+    var s = trace[k];
+    if(typeof s.charge === "number"){
+      spent.userDaily += s.charge; spent.userMonthly += s.charge; spent.teamDaily += s.charge;
+      leg = s.leg;
+    }
+  }
+  var here = trace[i];
+  var bump = (here && typeof here.charge === "number" && here.charge > 0) ? here.charge : 0;
+  updateMeters(leg, bump);
+}
+
+function renderTape(){
+  var rows = [];
+  for(var i=0;i<=cursor && i<trace.length;i++){
+    var s = trace[i];
+    if(s.ledger) rows.push('<div class="tapeline '+s.ledger.cls+(i===cursor?" fresh":"")+
+      '"><span>'+s.ledger.label+'</span><span class="amt">'+s.ledger.amt+'</span></div>');
+  }
+  document.getElementById("tape").innerHTML = rows.length ? rows.join("")
+    : '<p class="tape-empty">Nothing charged yet. Step through the call, or run it.</p>';
+}
+
+/* Apigee's own flow-phase names, each glossed once — the rail is navigation for a
+   reader who has never opened an Apigee proxy. */
+var PHASE_NOTE = {
+  "PreFlow":        "before anything is trusted",
+  "Request":        "on the way in — the only place a call can be refused",
+  "Target":         "the model itself",
+  "EventFlow":      "once per streamed event",
+  "Response":       "on the way out — priced, never refused",
+  "PostClientFlow": "after the caller already has the answer"
+};
+
+function renderRail(){
+  var host = document.getElementById("rail"), out = [], phase = null;
+  trace.forEach(function(s,i){
+    if(s.phase !== phase){
+      phase = s.phase;
+      out.push('<div class="phase">'+phase+
+        (PHASE_NOTE[phase] ? ' <em>&mdash; '+PHASE_NOTE[phase]+'</em>' : "")+'</div>');
+    }
+    var cls = "stage";
+    if(i > cursor) cls += " pending";
+    if(s.charge)   cls += " charge";
+    if(s.deny)     cls += " deny";
+    if(s.skip)     cls += " skip";
+    var dot = s.charge ? '<span class="dot c"></span>' : (s.deny ? '<span class="dot d"></span>' : "");
+    /* roving tabindex: one stop for the whole rail, arrows move within it */
+    out.push('<button class="'+cls+'" data-i="'+i+'" tabindex="'+(i===cursor?"0":"-1")+'"'+
+      (i===cursor ? ' aria-current="step"' : "")+'>'+
+      '<span class="ix">'+String(i+1).padStart(2,"0")+'</span>'+
+      '<span class="lbl"><span class="t">'+esc(s.title)+dot+'</span>'+
+      '<span class="p">'+esc(s.policy)+'</span></span></button>');
+  });
+  host.innerHTML = out.join("");
+  var cur = host.querySelector('[aria-current="step"]');
+  if(cur && cur.scrollIntoView) cur.scrollIntoView({block:"nearest"});
+}
+
+function renderDetail(){
+  var host = document.getElementById("detail");
+  var s = trace[cursor], h = [];
+  h.push('<span class="detail-policy'+(s.deny?" d":(s.charge?" c":""))+'">'+
+         s.phase+' &nbsp;/&nbsp; '+s.policy+'</span>');
+  h.push('<h3>'+s.title+'</h3>');
+  if(s.body)    h.push('<p>'+s.body+'</p>');
+  if(s.pass)    h.push('<p class="pass">&#10003; '+s.pass+'</p>');
+  if(s.math)    h.push('<pre>'+esc(s.math)+'</pre>');
+  if(s.vars)    h.push('<table class="vars"><tbody>'+s.vars.map(function(v){
+                  return '<tr><td>'+esc(v[0])+'</td><td>'+esc(v[1])+'</td></tr>';
+                }).join("")+'</tbody></table>');
+  if(s.headers) h.push('<pre>'+esc(s.headers.join("\n"))+'</pre>');
+  if(s.payload) h.push('<pre>'+esc(s.payload)+'</pre>');
+  if(s.why)     h.push('<div class="why"><b>Why here</b>'+s.why+'</div>');
+
+  if(spent.userDaily > CAPS.userDaily){
+    var past = spent.userDaily - CAPS.userDaily;
+    h.push('<div class="zoom"><h4>Past the cap — and by how much</h4>'+
+      '<p>This caller is over their daily cap by <b class="num">'+money(past)+'</b>. '+
+      'The furthest any single call can push them is <b class="num">'+money(OVERSHOOT)+'</b>: '+
+      'the forced ceiling of '+CEILING+' output tokens times the dearest allowed output rate. '+
+      'The next call they make is refused.</p>'+
+      '<div class="zoomtrack"><div class="z-fill" style="width:'+
+        Math.min(100, past/OVERSHOOT*100).toFixed(1)+'%"></div></div>'+
+      '<div class="zoomscale"><span>cap</span>'+
+      '<span>magnified &times;'+Math.round(CAPS.userDaily/OVERSHOOT)+
+      ' — this whole strip is '+money(OVERSHOOT)+'</span>'+
+      '<span>bound</span></div></div>');
+  }
+  host.innerHTML = h.join("");
+}
+
+function draw(){
+  applyTo(cursor); renderRail(); renderDetail(); renderTape();
+  document.getElementById("pos").textContent = "stage "+(cursor+1)+" of "+trace.length;
+  document.getElementById("prev").disabled = cursor <= 0;
+  document.getElementById("next").disabled = cursor >= trace.length-1;
+}
+
+/* Spell out, in words and figures, exactly what the chosen scenario put into the
+   counters — this is the link between step 1 and step 2, so it is stated rather
+   than left to be inferred from the bars moving. */
+function renderSetup(){
+  var r = current.req, s = current.start;
+  var pct = function(v,c){ return (100*v/c).toFixed(1)+"% of the cap already spent"; };
+  var rows = [
+    ["Model requested", r.model + (ALLOWED.indexOf(r.model) === -1
+        ? "   — not on the allowlist" : "")],
+    ["Prompt sent", r.prompt + " tokens" + (r.cached
+        ? "   (" + r.cached + " of them served from cache, at a tenth of the input price)" : "")],
+    ["Answer returned", r.stream
+        ? "streamed, and the client disconnects before the usage event arrives"
+        : (r.output
+            ? r.output + " visible tokens + " + r.thoughts + " reasoning tokens"
+            : "none — the call is refused before the model is reached")],
+    ["Quota counters", r.countersDown
+        ? "unreachable — failMode open-degraded applies"
+        : "reachable and healthy"],
+    ["User &middot; daily, at the start", money4(s.userDaily) + "  of  " + money4(CAPS.userDaily)
+        + "   — " + pct(s.userDaily, CAPS.userDaily)],
+    ["User &middot; monthly, at the start", money4(s.userMonthly) + "  of  " + money4(CAPS.userMonthly)
+        + "   — " + pct(s.userMonthly, CAPS.userMonthly)],
+    ["Team &middot; daily, at the start", money4(s.teamDaily) + "  of  " + money4(CAPS.teamDaily)
+        + "   — " + pct(s.teamDaily, CAPS.teamDaily)]
+  ];
+  document.getElementById("setup").innerHTML =
+    '<h3>Selected: ' + esc(current.label) + '</h3>' +
+    '<p class="setupnote">' + esc(current.note) + '</p>' +
+    '<table><tbody>' +
+    rows.map(function(x){
+      return '<tr><td>' + x[0] + '</td><td>' + esc(x[1]) + '</td></tr>';
+    }).join("") + '</tbody></table>';
+  document.getElementById("scenarioname").innerHTML =
+    'Three run at once, charged on both legs; the most constraining one decides. Seeded by <b>' +
+    esc(current.label) + '</b>.';
+}
+
+/* Open on the first stage rather than on an empty ledger: the largest panel on the
+   page should be showing something the moment a scenario is chosen. */
+function loadScenario(sc){
+  current = sc; trace = buildTrace(sc); cursor = 0; renderSetup(); draw();
+  Array.prototype.forEach.call(document.querySelectorAll("#chips .card"),function(b){
+    b.setAttribute("aria-pressed", String(b.getAttribute("data-id") === sc.id));
+  });
+}
+
+/* ---------------- wiring ---------------- */
+document.getElementById("chips").innerHTML = SCENARIOS.map(function(s){
+  return '<button class="card" data-id="'+s.id+'" aria-pressed="false">'+
+    '<b>'+esc(s.label)+'</b><span>'+esc(s.hint)+'</span></button>';
+}).join("");
+
+var timer = null;
+function halt(){ if(timer){ clearInterval(timer); timer = null; } }
+
+document.getElementById("chips").addEventListener("click",function(e){
+  var b = e.target.closest(".card"); if(!b) return;
+  halt();
+  loadScenario(SCENARIOS.filter(function(s){return s.id === b.getAttribute("data-id");})[0]);
+});
+document.getElementById("rail").addEventListener("click",function(e){
+  var b = e.target.closest(".stage"); if(!b) return;
+  halt(); cursor = parseInt(b.getAttribute("data-i"),10); draw();
+});
+document.getElementById("next").addEventListener("click",function(){
+  halt(); if(cursor < trace.length-1){ cursor++; draw(); }
+});
+document.getElementById("prev").addEventListener("click",function(){
+  halt(); if(cursor > 0){ cursor--; draw(); }
+});
+document.getElementById("reset").addEventListener("click",function(){
+  halt(); cursor = 0; draw();
+});
+document.getElementById("run").addEventListener("click",function(){
+  halt(); cursor = 0; draw();
+  var pace = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 1 : 520;
+  timer = setInterval(function(){
+    if(cursor >= trace.length-1){ halt(); return; }
+    cursor++; draw();
+  }, pace);
+});
+document.getElementById("rail").addEventListener("keydown",function(e){
+  var moved = false;
+  if(e.key === "ArrowRight" || e.key === "ArrowDown"){
+    e.preventDefault(); halt();
+    if(cursor < trace.length-1){ cursor++; draw(); moved = true; }
+  }
+  if(e.key === "ArrowLeft" || e.key === "ArrowUp"){
+    e.preventDefault(); halt();
+    if(cursor > 0){ cursor--; draw(); moved = true; }
+  }
+  /* draw() rebuilds the rail, so focus has to be put back on the new current stage
+     or the roving tabindex would drop the caret out of the list on every keypress */
+  if(moved){
+    var cur = this.querySelector('[aria-current="step"]');
+    if(cur) cur.focus();
+  }
+});
+
+/* State the bound as a share of the cap rather than asserting a percentage that
+   goes stale the next time a price moves. */
+document.getElementById("boundpct").textContent =
+  (100 * OVERSHOOT / CAPS.userDaily).toFixed(1).replace(/\.0$/,"") + "% (" + money(OVERSHOOT) + ")";
+
+loadScenario(SCENARIOS[0]);
+</script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AM-ReturnModelCatalogue">
+    <DisplayName>Return the allowed model catalogue</DisplayName>
+    <!--
+      Lets a client discover which models this environment permits, instead of
+      finding out by getting a 403.
+
+      This matters more than it looks. Without it, every client team hardcodes a
+      model list copied from documentation, and those lists drift out of step with
+      the allowlist the moment a model is deprecated or added. With it, the
+      gateway is the single source of truth and clients can populate a model
+      picker at runtime.
+    -->
+    <Set>
+        <Payload contentType="application/json">{"models":{cap.config.allowedModels},"default_max_output_tokens":{cap.limits.maxOutputTokens},"currency":"{cap.budget.currency}"}</Payload>
+        <StatusCode>200</StatusCode>
+        <ReasonPhrase>OK</ReasonPhrase>
+    </Set>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+    <AssignTo createNew="true" transport="http" type="response"/>
+</AssignMessage>

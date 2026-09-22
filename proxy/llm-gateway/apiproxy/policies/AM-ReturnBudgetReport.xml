@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AM-ReturnBudgetReport">
+    <DisplayName>Return the budget report</DisplayName>
+    <!--
+      Terminates GET /v1/budget inside the proxy. The route rule for this path has
+      no TargetEndpoint, so setting a response here returns it directly without
+      any upstream call - the endpoint costs a counter read and nothing else.
+    -->
+    <Set>
+        <Payload contentType="application/json">{cap.budget.reportBody}</Payload>
+        <StatusCode>200</StatusCode>
+        <ReasonPhrase>OK</ReasonPhrase>
+    </Set>
+    <Set>
+        <Headers>
+            <!-- Budget figures change with every call the user makes. Caching them
+                 anywhere would show stale headroom, which is worse than showing
+                 none. -->
+            <Header name="Cache-Control">no-store</Header>
+        </Headers>
+    </Set>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+    <AssignTo createNew="true" transport="http" type="response"/>
+</AssignMessage>

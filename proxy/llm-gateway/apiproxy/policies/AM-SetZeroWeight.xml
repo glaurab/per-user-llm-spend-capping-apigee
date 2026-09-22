@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AM-SetZeroWeight">
+    <DisplayName>Set quota weight to zero</DisplayName>
+    <!--
+      Used only by GET /v1/budget.
+
+      Apigee quota policies publish their counts (ratelimit.*.used.count and
+      friends) as a side effect of executing. Running them with a weight of zero
+      therefore reads the counters without charging them, which is exactly what a
+      budget-introspection endpoint needs.
+
+      The alternative - a separate read path that queries the counter store
+      directly - would be a second implementation of the same lookup, free to
+      drift out of step with the enforcement path and report a number that does
+      not match what enforcement actually does. Reading through the same policy
+      guarantees the report and the enforcement agree.
+    -->
+    <AssignVariable>
+        <Name>cap.weight.micros</Name>
+        <Value>0</Value>
+    </AssignVariable>
+    <IgnoreUnresolvedVariables>false</IgnoreUnresolvedVariables>
+</AssignMessage>

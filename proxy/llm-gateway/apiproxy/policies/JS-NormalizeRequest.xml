@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Javascript continueOnError="false" enabled="true" timeLimit="200" name="JS-NormalizeRequest">
+    <DisplayName>Validate and normalize the request</DisplayName>
+    <!--
+      Checks the model against the allowlist, guards the prompt size, and - the
+      important part - overwrites generationConfig.maxOutputTokens with the
+      configured ceiling instead of trusting the client.
+
+      That single rewrite is what makes the cap enforceable. Without a bound on
+      the cost of one call, the worst-case overshoot past a budget is unbounded,
+      and "we cap users at N per day" is an unfalsifiable claim.
+    -->
+    <ResourceURL>jsc://request-normalize.js</ResourceURL>
+</Javascript>

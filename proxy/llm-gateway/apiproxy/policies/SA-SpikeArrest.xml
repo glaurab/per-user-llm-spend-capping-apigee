@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<SpikeArrest continueOnError="false" enabled="true" name="SA-SpikeArrest">
+    <DisplayName>Per-caller burst protection</DisplayName>
+    <!--
+      A budget cap and a rate limit solve different problems and neither replaces
+      the other.
+
+      The budget says how much a user may spend in a day. It says nothing about
+      how fast. A client stuck in a retry loop can burn a full daily budget in
+      seconds - technically within policy, operationally a incident, and a
+      guaranteed way to exhaust the shared Agent Platform project quota for everybody
+      else in the process.
+
+      Spike arrest is also among the cheapest policies in the chain, which is why
+      it runs near the front: a caller in a hot loop is rejected before the
+      gateway spends effort verifying signatures, reading configuration or calling
+      countTokens.
+
+      Identifier is the raw bearer token, extracted by EV-ExtractBearerToken but
+      not yet verified. That ordering is deliberate: a flood of INVALID tokens is
+      throttled too, instead of being allowed to hammer signature verification and
+      the JWKS cache. The trade-off is that the throttle key is attacker-chosen -
+      rotating the token string escapes it - so this is burst protection, not an
+      access control. The budget counters, keyed on a verified claim, are the
+      control.
+    -->
+    <Identifier ref="cap.auth.token"/>
+    <Rate>@@SPIKE_ARREST_RATE@@</Rate>
+    <UseEffectiveCount>true</UseEffectiveCount>
+</SpikeArrest>

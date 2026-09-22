@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RaiseFault continueOnError="false" enabled="true" name="RF-ModelNotAllowed">
+    <DisplayName>403 - model not permitted</DisplayName>
+    <!--
+      403 rather than 429: this will not become true by waiting. A client should
+      stop retrying and pick a different model.
+
+      The response echoes the permitted list so the fix is immediate and needs no
+      documentation lookup. That is deliberate - a client that has to go and read
+      docs to discover the allowed models will hardcode whatever it finds there,
+      and hardcoded lists rot.
+    -->
+    <FaultResponse>
+        <Set>
+            <Payload contentType="application/json">{
+  "error": {
+    "code": 403,
+    "status": "MODEL_NOT_ALLOWED",
+    "message": "Model '{cap.model}' is not permitted in this environment.",
+    "allowed_models": {cap.config.allowedModels},
+    "correlation_id": "{messageid}"
+  }
+}</Payload>
+            <StatusCode>403</StatusCode>
+            <ReasonPhrase>Forbidden</ReasonPhrase>
+        </Set>
+    </FaultResponse>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</RaiseFault>

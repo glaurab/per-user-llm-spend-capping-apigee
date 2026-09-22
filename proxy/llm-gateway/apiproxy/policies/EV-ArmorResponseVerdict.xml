@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ExtractVariables continueOnError="true" enabled="true" name="EV-ArmorResponseVerdict">
+    <DisplayName>Read the response screening verdict</DisplayName>
+    <!-- Response-side counterpart of EV-ArmorPromptVerdict; same fail-open
+         rationale applies. -->
+    <Source clearPayload="false">capArmorResponseResponse</Source>
+    <VariablePrefix>cap.armor.response</VariablePrefix>
+    <JSONPayload>
+        <Variable name="matchState" type="string">
+            <JSONPath>$.sanitizationResult.filterMatchState</JSONPath>
+        </Variable>
+    </JSONPayload>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</ExtractVariables>

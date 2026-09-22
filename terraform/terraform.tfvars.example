@@ -1,0 +1,60 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+#
+# Every geographic value below is written as a placeholder rather than a
+# plausible default. That is intentional: a default region is a decision made on
+# your behalf, and in a project whose whole purpose is governance, the one place
+# you do not want an invisible default is where the data goes.
+
+# ------------------------------------------------------------------------------
+# Projects
+# ------------------------------------------------------------------------------
+
+project_id           = "my-apigee-project"
+inference_project_id = "my-inference-project"
+region               = "REGION"
+
+# ------------------------------------------------------------------------------
+# Apigee - the organization and runtime instance must already exist.
+#
+#   gcloud apigee organizations list
+#   gcloud apigee instances list --organization=my-apigee-project
+# ------------------------------------------------------------------------------
+
+apigee_org         = "my-apigee-project"
+apigee_instance_id = "my-instance"
+
+environment_name = "llm-gateway"
+envgroup_name    = "llm-gateway-group"
+kvm_name         = "llm-gateway-config"
+
+gateway_hostnames = ["llm.example.internal"]
+
+# ------------------------------------------------------------------------------
+# Runtime identity
+# ------------------------------------------------------------------------------
+
+runtime_sa_id                 = "llm-gateway-runtime"
+grant_predict_via_custom_role = true
+
+# ------------------------------------------------------------------------------
+# Observability
+# ------------------------------------------------------------------------------
+
+spend_dataset_id       = "llm_gateway_spend"
+spend_dataset_location = "REGION_OR_MULTIREGION"
+
+# Create these first, then paste the ids:
+#   gcloud beta monitoring channels list --format='value(name)'
+alert_notification_channels = []
+
+budget_exceeded_alert_threshold = 25
+
+# ------------------------------------------------------------------------------
+# Organization policies - read docs/10-security.md and talk to whoever owns
+# policy in your organization before setting this to true.
+# ------------------------------------------------------------------------------
+
+manage_org_policies = false
+
+# allowed_resource_locations = ["in:REGION-locations"]
+# allowed_vertex_models      = ["gemini-3.7-flash", "gemini-3.1-pro"]

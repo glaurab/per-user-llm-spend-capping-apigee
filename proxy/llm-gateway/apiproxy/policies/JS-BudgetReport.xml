@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Javascript continueOnError="false" enabled="true" timeLimit="200" name="JS-BudgetReport">
+    <DisplayName>Build the budget report body</DisplayName>
+    <!--
+      Serves GET /v1/budget. Reads the three counters (charged at weight 0 by
+      AM-SetZeroWeight) and renders remaining headroom as currency.
+
+      A cap a user can watch approaching is a budget. A cap a user only meets by
+      being refused is an outage.
+    -->
+    <IncludeURL>jsc://lib-pricing.js</IncludeURL>
+    <ResourceURL>jsc://budget-report.js</ResourceURL>
+</Javascript>

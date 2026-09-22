@@ -1,0 +1,50 @@
+# ==============================================================================
+# The live configuration files.
+#
+# These are the copies `make init` creates from the .example files. They hold no
+# secrets - identifiers, hostnames, prices and budgets - but they are
+# environment-specific, and a committed copy is how a development configuration
+# ends up applied to production because someone ran `make seed` on the wrong
+# checkout.
+#
+# The .example files ARE tracked, and they are the documentation of the schema.
+# When you add a setting, add it to the example too.
+# ==============================================================================
+
+config/env.sh
+config/pricing.json
+config/budgets.json
+config/runtime-config.json
+
+# ==============================================================================
+# Terraform
+# ==============================================================================
+
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/*.tfplan
+terraform/crash.log
+
+# State can contain resource metadata you would rather not publish, and is
+# meaningless outside the backend that owns it. Configure a remote backend
+# before more than one person touches this.
+
+# ==============================================================================
+# Build output - a bundle with the placeholders already substituted, i.e. a
+# copy of the proxy with your real JWKS URI and hostnames written into it.
+# ==============================================================================
+
+.build/
+*.bundle.zip
+
+# ==============================================================================
+# Local noise
+# ==============================================================================
+
+.DS_Store
+*.bak
+*.swp
+/tmp/

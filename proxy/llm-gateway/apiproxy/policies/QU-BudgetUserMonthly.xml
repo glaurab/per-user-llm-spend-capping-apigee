@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Quota continueOnError="true" enabled="true" name="QU-BudgetUserMonthly" type="flexi">
+    <DisplayName>Budget - user, monthly</DisplayName>
+    <!--
+      Same mechanism as QU-BudgetUserDaily; read that policy first.
+
+      WHY A MONTHLY LIMIT AS WELL AS A DAILY ONE
+      ==========================================
+      A daily cap alone permits 30x the daily figure every month, which is rarely
+      what anyone means. The monthly counter catches the user who sits just under
+      their daily limit every single day - behaviour no daily cap can see, and the
+      most common way a "capped" deployment still overshoots its budget.
+
+      Interval is 40 days: long enough that a counter created on the first of a
+      month survives the whole month, since the period itself is expressed by the
+      YYYY-MM stamp inside the identifier rather than by the interval.
+    -->
+    <Identifier ref="cap.key.user.monthly"/>
+    <Allow countRef="cap.budget.user.monthly.micros" count="0"/>
+    <Interval>40</Interval>
+    <TimeUnit>day</TimeUnit>
+    <MessageWeight ref="cap.weight.micros"/>
+    <Distributed>true</Distributed>
+    <Synchronous>true</Synchronous>
+</Quota>

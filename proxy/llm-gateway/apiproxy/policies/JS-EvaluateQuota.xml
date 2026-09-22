@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Javascript continueOnError="false" enabled="true" timeLimit="200" name="JS-EvaluateQuota">
+    <DisplayName>Evaluate the three counters and decide</DisplayName>
+    <!--
+      Reads the ratelimit.* variables published by the three quota policies and
+      sets cap.decision.deny.
+
+      This is where the allow / deny / degrade decision lives, rather than in the
+      quota policies themselves, because only here can we see all three counters
+      at once, tell "over budget" apart from "counter unreachable", and produce an
+      error the caller can act on.
+    -->
+    <ResourceURL>jsc://quota-evaluate.js</ResourceURL>
+</Javascript>

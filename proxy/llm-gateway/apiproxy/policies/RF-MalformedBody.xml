@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RaiseFault continueOnError="false" enabled="true" name="RF-MalformedBody">
+    <DisplayName>400 - request body is not valid JSON</DisplayName>
+    <!--
+      Rejected at the gateway rather than forwarded.
+
+      Passing an unparseable body upstream would mean paying for a round trip to
+      get an error the gateway could have produced for free - and, worse, it would
+      mean the gateway had already charged the input estimate for a request that
+      was never going to run.
+    -->
+    <FaultResponse>
+        <Set>
+            <Payload contentType="application/json">{
+  "error": {
+    "code": 400,
+    "status": "MALFORMED_BODY",
+    "message": "The request body could not be parsed as JSON.",
+    "correlation_id": "{messageid}"
+  }
+}</Payload>
+            <StatusCode>400</StatusCode>
+            <ReasonPhrase>Bad Request</ReasonPhrase>
+        </Set>
+    </FaultResponse>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</RaiseFault>

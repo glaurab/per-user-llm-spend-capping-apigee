@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<KeyValueMapOperations continueOnError="true" enabled="true" name="KVM-LoadPricing" mapIdentifier="llm-gateway-config">
+    <DisplayName>Load price table</DisplayName>
+    <!--
+      Per-model prices, expressed as currency units per 1,000,000 tokens - the
+      same unit model vendors publish, which makes the cost conversion a bare
+      multiplication (see lib-pricing.js).
+
+      WHY THIS IS DATA AND NOT CODE
+      =============================
+      A published price changes and nothing breaks. There is no exception, no
+      failed deploy, no alert. The meter simply becomes wrong, and stays wrong
+      until someone reconciles an invoice weeks later. Keeping prices in a KVM
+      means correcting them is a one-line operation with no release, which is the
+      difference between a correction that happens the same day and one that
+      waits for the next deployment window.
+    -->
+    <Scope>environment</Scope>
+    <ExpiryTimeInSecs>300</ExpiryTimeInSecs>
+    <Get assignTo="cap.raw.pricing" index="1">
+        <Key>
+            <Parameter>pricing</Parameter>
+        </Key>
+    </Get>
+</KeyValueMapOperations>

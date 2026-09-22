@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ServiceCallout continueOnError="true" enabled="true" name="SC-CountTokens">
+    <DisplayName>Pre-flight exact input token count</DisplayName>
+    <!--
+      WHY SPEND A ROUND TRIP ON THIS
+      ==============================
+      countTokens is not billed. It returns the exact number of input tokens the
+      model will see, for every modality - text, images, audio, video - which no
+      character-count heuristic can do.
+
+      That exactness is what makes the split-charge design work. The request leg
+      charges the input side; if that figure were an estimate, the reconciliation
+      on the response leg would frequently need to REFUND, and Apigee quota
+      weights cannot be negative. An exact input charge means the response-leg
+      delta is always non-negative and the counter is always right.
+
+      The cost is one extra round trip to the same region the inference call is
+      going to anyway. Disable it (features.preflightCountTokens = false) if that
+      latency matters more than accuracy; the character estimator in
+      lib-pricing.js takes over and is tuned to over-estimate, because the bias
+      has to point at over-charging rather than under-charging.
+
+      continueOnError is true: this is an accuracy optimisation, not a control. If
+      it fails, JS-EstimateRequestCost silently falls back to the estimator.
+
+      The URL host is substituted at package time (@@VERTEX_HOST@@) because it is
+      fixed per environment. Only the path varies per request, and Apigee resolves
+      message templates there reliably. See docs/07-configuration.md.
+    -->
+    <Request clearPayload="true" variable="capCountTokensRequest">
+        <Set>
+            <Verb>POST</Verb>
+            <Path>/v1/projects/{cap.vertex.project}/locations/{cap.vertex.location}/publishers/{cap.vertex.publisher}/models/{cap.model}:countTokens</Path>
+            <Payload contentType="application/json">{cap.countTokens.payload}</Payload>
+        </Set>
+    </Request>
+    <Response>capCountTokensResponse</Response>
+    <!-- Short timeout. A slow countTokens must degrade to the estimator, not hold
+         the user's request open. -->
+    <Timeout>3000</Timeout>
+    <HTTPTargetConnection>
+        <Authentication>
+            <GoogleAccessToken>
+                <Scopes>
+                    <Scope>https://www.googleapis.com/auth/cloud-platform</Scope>
+                </Scopes>
+            </GoogleAccessToken>
+        </Authentication>
+        <URL>@@VERTEX_HOST@@</URL>
+    </HTTPTargetConnection>
+</ServiceCallout>

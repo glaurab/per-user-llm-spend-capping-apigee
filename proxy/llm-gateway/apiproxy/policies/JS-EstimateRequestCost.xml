@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Javascript continueOnError="false" enabled="true" timeLimit="200" name="JS-EstimateRequestCost">
+    <DisplayName>Price the input side</DisplayName>
+    <!--
+      Converts the input token count into micro-units and publishes it as
+      cap.weight.micros, which the three quota policies on the request leg then
+      charge.
+
+      Must run AFTER SC-CountTokens (whose result it prefers) and BEFORE the
+      quota steps (whose weight it sets).
+    -->
+    <IncludeURL>jsc://lib-pricing.js</IncludeURL>
+    <ResourceURL>jsc://request-estimate-cost.js</ResourceURL>
+</Javascript>

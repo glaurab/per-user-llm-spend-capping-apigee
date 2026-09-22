@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RaiseFault continueOnError="false" enabled="true" name="RF-PromptTooLarge">
+    <DisplayName>413 - prompt exceeds the per-call input limit</DisplayName>
+    <!--
+      A companion to the forced output ceiling in JS-NormalizeRequest. Together
+      they bound the cost of one call from both ends.
+
+      The output ceiling alone is not enough: with a large enough context window,
+      the INPUT side of a single call can exceed an entire monthly budget before a
+      single output token is generated. This limit exists so that the worst case
+      for one request is a number an operator chose rather than a number the model
+      family happens to support.
+
+      Set it well below the model's context window. The context window is a
+      capability limit; this is a spend limit, and they are unrelated numbers.
+    -->
+    <FaultResponse>
+        <Set>
+            <Payload contentType="application/json">{
+  "error": {
+    "code": 413,
+    "status": "PROMPT_TOO_LARGE",
+    "message": "The prompt exceeds the per-call input limit for this gateway.",
+    "prompt_characters": {cap.request.textChars},
+    "limit_characters": {cap.request.maxPromptChars},
+    "detail": "This limit is a spend control and is intentionally lower than the model's context window.",
+    "correlation_id": "{messageid}"
+  }
+}</Payload>
+            <StatusCode>413</StatusCode>
+            <ReasonPhrase>Payload Too Large</ReasonPhrase>
+        </Set>
+    </FaultResponse>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</RaiseFault>

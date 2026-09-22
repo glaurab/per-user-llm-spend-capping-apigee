@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ServiceCallout continueOnError="true" enabled="true" name="SC-SanitizeUserPrompt">
+    <DisplayName>Model Armor - screen the prompt</DisplayName>
+    <!--
+      Optional content-safety screening of the prompt, off by default
+      (features.modelArmorEnabled).
+
+      WHY THIS IS A SERVICE CALLOUT AND NOT AN APIGEE-NATIVE POLICY
+      =============================================================
+      Model Armor is a standalone service with a plain REST API. Apigee ships
+      convenience policies that wrap it, but nothing about the capability is
+      exclusive to Apigee - any component that can make an HTTPS request can call
+      it. Using the raw API here keeps the dependency explicit and keeps this
+      proxy portable.
+
+      WHY IT RUNS AFTER THE BUDGET DECISION
+      =====================================
+      Model Armor calls are themselves billable. Screening the prompt of a caller
+      who is already over budget spends money on a request that is about to be
+      refused.
+
+      REGIONAL NOTE
+      =============
+      Model Armor is not available in every region that runs Apigee or the Agent
+      Platform. If
+      your gateway region has no Model Armor presence, this callout crosses a
+      region boundary carrying the raw prompt - the most sensitive payload in the
+      system. Check this before enabling it in a residency-constrained
+      deployment. See docs/11-regions-and-residency.md.
+    -->
+    <Request clearPayload="true" variable="capArmorPromptRequest">
+        <Set>
+            <Verb>POST</Verb>
+            <Path>/v1/projects/{cap.armor.project}/locations/{cap.armor.location}/templates/{cap.armor.template}:sanitizeUserPrompt</Path>
+            <Payload contentType="application/json">{"userPromptData":{"text":"{cap.armor.promptText}"}}</Payload>
+        </Set>
+    </Request>
+    <Response>capArmorPromptResponse</Response>
+    <Timeout>5000</Timeout>
+    <HTTPTargetConnection>
+        <Authentication>
+            <GoogleAccessToken>
+                <Scopes>
+                    <Scope>https://www.googleapis.com/auth/cloud-platform</Scope>
+                </Scopes>
+            </GoogleAccessToken>
+        </Authentication>
+        <URL>@@MODEL_ARMOR_HOST@@</URL>
+    </HTTPTargetConnection>
+</ServiceCallout>

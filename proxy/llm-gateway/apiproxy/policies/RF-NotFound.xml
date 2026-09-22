@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RaiseFault continueOnError="false" enabled="true" name="RF-NotFound">
+    <DisplayName>404 - not part of the gateway contract</DisplayName>
+    <!--
+      The catch-all flow. Anything that did not match a declared route ends here.
+
+      This is a security control as much as a usability one. Without an explicit
+      terminal flow, an unmatched path would fall through to the default route
+      rule and be forwarded upstream - turning the gateway into an open proxy for
+      the entire Agent Platform surface, with no metering on any of it. Every unmetered
+      path is a bypass.
+
+      The gateway therefore exposes a deliberately small contract, and everything
+      outside it is refused here.
+    -->
+    <FaultResponse>
+        <Set>
+            <Payload contentType="application/json">{
+  "error": {
+    "code": 404,
+    "status": "NOT_FOUND",
+    "message": "This path is not part of the gateway contract.",
+    "supported": [
+      "POST /v1/models/{model}:generateContent",
+      "POST /v1/models/{model}:streamGenerateContent",
+      "GET  /v1/budget",
+      "GET  /v1/models"
+    ],
+    "correlation_id": "{messageid}"
+  }
+}</Payload>
+            <StatusCode>404</StatusCode>
+            <ReasonPhrase>Not Found</ReasonPhrase>
+        </Set>
+    </FaultResponse>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</RaiseFault>

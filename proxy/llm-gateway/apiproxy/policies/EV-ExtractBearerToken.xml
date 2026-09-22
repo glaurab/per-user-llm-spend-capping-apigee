@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ExtractVariables continueOnError="false" enabled="true" name="EV-ExtractBearerToken">
+    <DisplayName>Extract bearer token</DisplayName>
+    <!--
+      VerifyJWT needs the bare token, not the "Bearer " prefix. Pulling it out
+      here keeps VerifyJWT's Source a simple variable reference.
+
+      IgnoreUnresolvedVariables is false: a request with no Authorization header
+      must fail here rather than reach VerifyJWT with an empty token, so the
+      caller gets a clear 401 instead of a confusing signature error.
+    -->
+    <Source clearPayload="false">request</Source>
+    <VariablePrefix>cap.auth</VariablePrefix>
+    <Header name="Authorization">
+        <Pattern ignoreCase="true">Bearer {token}</Pattern>
+    </Header>
+    <IgnoreUnresolvedVariables>false</IgnoreUnresolvedVariables>
+</ExtractVariables>

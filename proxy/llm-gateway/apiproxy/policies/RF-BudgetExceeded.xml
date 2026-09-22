@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RaiseFault continueOnError="false" enabled="true" name="RF-BudgetExceeded">
+    <DisplayName>429 - budget exhausted</DisplayName>
+    <!--
+      THE MOST IMPORTANT ERROR IN THE SYSTEM.
+
+      This is the only part of the design most users will ever see, and how it is
+      written decides whether the cap is understood as a budget or resented as an
+      outage. Four things it must carry:
+
+        WHICH limit was hit   - user daily, user monthly or team daily. "You are
+                                over quota" with three possible quotas is a
+                                support ticket.
+        HOW MUCH was used     - so the number is checkable rather than asserted.
+        WHEN it resets        - an accurate figure, computed in the caller's own
+                                timezone, not a generic "try again later".
+        WHO to ask            - the escalation path, because for a team-level
+                                breach the individual user can do nothing at all
+                                and needs to know that immediately.
+
+      Retry-After is a real, computed value rather than a constant. A client that
+      honours it will retry exactly once, at the right time. A constant would have
+      every capped client in the organisation retry in lockstep.
+
+      429 rather than 403: the condition is temporary and self-clearing, which is
+      precisely what 429 means. 403 tells a client the request will never succeed
+      and well-behaved clients stop retrying permanently.
+    -->
+    <FaultResponse>
+        <Set>
+            <Payload contentType="application/json">{
+  "error": {
+    "code": 429,
+    "status": "BUDGET_EXCEEDED",
+    "message": "Your {cap.decision.breachedPeriod} {cap.decision.breachedScope} budget is exhausted.",
+    "limit": "{cap.decision.breachedLimit}",
+    "scope": "{cap.decision.breachedScope}",
+    "period": "{cap.decision.breachedPeriod}",
+    "currency": "{cap.budget.currency}",
+    "limit_amount": "{cap.decision.limitDisplay}",
+    "used_amount": "{cap.decision.usedDisplay}",
+    "resets_in_seconds": {cap.period.resetSeconds},
+    "escalation": "@@ESCALATION_CONTACT@@",
+    "correlation_id": "{messageid}"
+  }
+}</Payload>
+            <StatusCode>429</StatusCode>
+            <ReasonPhrase>Too Many Requests</ReasonPhrase>
+            <Headers>
+                <Header name="Retry-After">{cap.period.resetSeconds}</Header>
+                <Header name="X-Budget-Limit-Hit">{cap.decision.breachedLimit}</Header>
+                <Header name="X-Correlation-Id">{messageid}</Header>
+            </Headers>
+        </Set>
+    </FaultResponse>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</RaiseFault>

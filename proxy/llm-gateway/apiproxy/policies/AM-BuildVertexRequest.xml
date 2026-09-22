@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AM-BuildVertexRequest">
+    <DisplayName>Rewrite to the Agent Platform URL</DisplayName>
+    <!--
+      Translates the gateway's stable public contract into the provider's URL
+      shape, and points the target at the configured host.
+
+        public   POST {base}/v1/models/gemini-3.7-flash:generateContent
+        upstream POST {host}/v1/projects/{p}/locations/{l}/publishers/google/
+                      models/gemini-3.7-flash:generateContent
+
+      WHY THE PUBLIC PATH IS NOT THE VERTEX PATH
+      ==========================================
+      Client applications should not carry the project id, the location or the
+      publisher in their URLs. Every one of those is an operational detail that
+      may need to change - a project split, a region migration, a move from a
+      regional to a multi-region endpoint - and if it is baked into client code
+      then every such change becomes a coordinated release across every consuming
+      team. Here it is a KVM edit.
+
+      WHY target.url AND NOT A STATIC TARGET
+      ======================================
+      Setting the target.url flow variable overrides the URL in
+      targets/vertex.xml per request. The endpoint tier therefore becomes runtime
+      configuration rather than a property of the bundle, so promoting the same
+      artifact across environments that use different endpoints requires no
+      rebuild.
+
+      Watch the hostname forms - they are not symmetrical, and the multi-region
+      one catches people out:
+        regional      https://{region}-aiplatform.googleapis.com
+        multi-region  https://aiplatform.{jurisdiction}.rep.googleapis.com
+        global        https://aiplatform.googleapis.com
+      Guessing "{jurisdiction}-aiplatform.googleapis.com" by analogy with the
+      regional form produces a host that does not exist and a DNS error that says
+      nothing useful. scripts/preflight-check.sh resolves the configured host
+      precisely so this is caught before deployment rather than at 3am.
+    -->
+    <AssignVariable>
+        <Name>target.url</Name>
+        <Template>{cap.vertex.host}/v1/projects/{cap.vertex.project}/locations/{cap.vertex.location}/publishers/{cap.vertex.publisher}/models/{cap.model}:{cap.method}</Template>
+    </AssignVariable>
+
+    <!--
+      Preserve the inbound query string. Streaming clients pass ?alt=sse, and
+      dropping it silently converts a streaming request into a unary one that the
+      client will then fail to parse.
+    -->
+    <Copy source="request">
+        <QueryParams/>
+    </Copy>
+
+    <!-- The caller's bearer token authenticated them TO THE GATEWAY. It must not
+         travel upstream: the Agent Platform is authenticated by the Apigee runtime service
+         account (see targets/vertex.xml), and forwarding a user token to a
+         third-party API is a credential leak with no upside. -->
+    <Remove>
+        <Headers>
+            <Header>Authorization</Header>
+            <Header>X-Goog-Api-Key</Header>
+            <Header>X-Goog-User-Project</Header>
+        </Headers>
+    </Remove>
+
+    <Set>
+        <Headers>
+            <Header name="Content-Type">application/json</Header>
+        </Headers>
+    </Set>
+
+    <IgnoreUnresolvedVariables>false</IgnoreUnresolvedVariables>
+    <AssignTo createNew="false" transport="http" type="request"/>
+</AssignMessage>

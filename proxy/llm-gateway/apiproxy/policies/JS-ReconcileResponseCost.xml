@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Javascript continueOnError="true" enabled="true" timeLimit="200" name="JS-ReconcileResponseCost">
+    <DisplayName>Reconcile actual cost (unary)</DisplayName>
+    <!--
+      Prices the completed call from its own usageMetadata and sets
+      cap.weight.micros to the difference against what the request leg already
+      charged.
+
+      continueOnError is true: the response has already been generated and paid
+      for upstream. A failure to meter it must not also fail to deliver it. The
+      lost charge is recoverable from the analytics log; a 500 handed to a user
+      whose answer was ready is not.
+    -->
+    <IncludeURL>jsc://lib-pricing.js</IncludeURL>
+    <ResourceURL>jsc://response-reconcile-cost.js</ResourceURL>
+</Javascript>

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RaiseFault continueOnError="false" enabled="true" name="RF-PromptBlocked">
+    <DisplayName>400 - prompt blocked by content screening</DisplayName>
+    <!--
+      Raised when Model Armor flagged the prompt, before any generation happened.
+
+      The budget is NOT charged for this call beyond the input estimate already
+      taken on the request leg, because nothing was generated. That residual
+      charge is small, bounded, and cannot be refunded - see
+      docs/05-enforcement-semantics.md.
+
+      The message deliberately does not say WHICH filter matched. Telling a caller
+      precisely which rule they tripped turns the screening layer into an oracle
+      they can iterate against until they find a phrasing that passes.
+    -->
+    <FaultResponse>
+        <Set>
+            <Payload contentType="application/json">{
+  "error": {
+    "code": 400,
+    "status": "PROMPT_BLOCKED",
+    "message": "The prompt was rejected by content screening policy.",
+    "correlation_id": "{messageid}"
+  }
+}</Payload>
+            <StatusCode>400</StatusCode>
+            <ReasonPhrase>Bad Request</ReasonPhrase>
+        </Set>
+    </FaultResponse>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</RaiseFault>

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RaiseFault continueOnError="false" enabled="true" name="RF-NotMeterable">
+    <DisplayName>503 - request cannot be metered</DisplayName>
+    <!--
+      Covers two conditions that share one response:
+
+        MODEL_NOT_PRICED     the model passed the allowlist but has no entry in
+                             the price table. The allowlist and the price table
+                             have drifted apart - an operator error, not a caller
+                             error, which is why this is 5xx and not 4xx.
+
+        COUNTER_UNAVAILABLE  the counter store could not be reached and the
+                             configured fail mode is "closed".
+
+      Both mean the same thing to a caller: the gateway declines to serve traffic
+      it cannot account for. That refusal is the entire point of the component. A
+      gateway that serves unmetered traffic when its meter breaks is not a
+      governance control, it is a proxy with extra latency.
+    -->
+    <FaultResponse>
+        <Set>
+            <Payload contentType="application/json">{
+  "error": {
+    "code": 503,
+    "status": "{cap.decision.reason}",
+    "message": "The gateway cannot account for this request and will not serve it.",
+    "correlation_id": "{messageid}"
+  }
+}</Payload>
+            <StatusCode>503</StatusCode>
+            <ReasonPhrase>Service Unavailable</ReasonPhrase>
+            <Headers>
+                <Header name="Retry-After">30</Header>
+                <Header name="X-Correlation-Id">{messageid}</Header>
+            </Headers>
+        </Set>
+    </FaultResponse>
+    <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</RaiseFault>

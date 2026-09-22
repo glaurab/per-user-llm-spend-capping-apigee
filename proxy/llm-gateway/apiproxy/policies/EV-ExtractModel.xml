@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ExtractVariables continueOnError="false" enabled="true" name="EV-ExtractModel">
+    <DisplayName>Extract model and method from path</DisplayName>
+    <!--
+      Captures the trailing path segment whole, e.g. "gemini-3.7-flash:generateContent".
+
+      The model id and the method are NOT split here. Apigee URI patterns match
+      segment by segment, and a colon inside a segment is not a dependable
+      delimiter for them - model ids can contain characters that make greedy
+      matching ambiguous. JS-NormalizeRequest splits on the last colon instead,
+      which is unambiguous for every model id the Agent Platform publishes.
+    -->
+    <Source clearPayload="false">request</Source>
+    <VariablePrefix>route</VariablePrefix>
+    <URIPath>
+        <Pattern ignoreCase="false">/v1/models/{modelAndMethod}</Pattern>
+    </URIPath>
+    <IgnoreUnresolvedVariables>false</IgnoreUnresolvedVariables>
+</ExtractVariables>

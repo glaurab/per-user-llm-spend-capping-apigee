@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<MessageLogging continueOnError="true" enabled="true" name="ML-LogSpend">
+    <DisplayName>Emit a structured spend record</DisplayName>
+    <!--
+      One JSON record per call, to Cloud Logging.
+
+      WHY THIS EXISTS ALONGSIDE APIGEE ANALYTICS
+      ==========================================
+      Analytics answers "what is happening" interactively. This log is the
+      durable, exportable ledger: routed to BigQuery by a sink (see
+      terraform/observability.tf), it becomes the table that reconciles gateway
+      spend against the cloud invoice, drives chargeback, and calibrates budgets
+      before enforcement is switched on.
+
+      That reconciliation matters more than it sounds. The gateway's cost figure
+      is computed from a price table maintained by hand. The invoice is authority.
+      If the two diverge, the price table is wrong, and without this ledger the
+      divergence is invisible until someone compares totals at the end of a
+      quarter.
+
+      RAW TOKEN COUNTS ARE LOGGED ALONGSIDE THE MONEY
+      ===============================================
+      Deliberately. Money is derived from a price table that will change and may
+      be wrong; tokens are the ground truth reported by the model. Keeping both
+      means a price correction can be replayed over historical data to restate
+      past spend. Logging only the derived figure makes history unrepairable.
+
+      WHERE IT IS ATTACHED, AND WHY ONLY THERE
+      ========================================
+      PostClientFlow only. That flow runs after the response has been handed to
+      the client, so writing the ledger costs the user nothing in latency, and it
+      runs for faulted requests too - so refusals are recorded alongside successes.
+      A 429 that leaves no trace is a 429 nobody can investigate.
+
+      Attaching it in the response flows as well would be a plausible-looking
+      mistake: those flows also run on the happy path, so every successful call
+      would be logged twice and every spend total computed from this log would be
+      double.
+    -->
+    <CloudLogging>
+        <LogName>projects/{organization.name}/logs/llm-gateway-spend</LogName>
+        <Message contentType="application/json">{
+  "event": "llm_call",
+  "correlation_id": "{messageid}",
+  "timestamp_ms": "{system.timestamp}",
+  "environment": "{environment.name}",
+  "proxy": "{apiproxy.name}",
+  "revision": "{apiproxy.revision}",
+  "identity": {
+    "subject": "{cap.identity.subject}",
+    "tier": "{cap.identity.tier}",
+    "team": "{cap.identity.team}"
+  },
+  "request": {
+    "model_requested": "{cap.model}",
+    "model_served": "{cap.usage.servedModel}",
+    "method": "{cap.method}",
+    "max_output_tokens": "{cap.limits.effectiveMaxOutputTokens}",
+    "token_source": "{cap.tokens.source}"
+  },
+  "usage": {
+    "prompt_tokens": "{cap.usage.promptTokens}",
+    "candidates_tokens": "{cap.usage.candidatesTokens}",
+    "cached_tokens": "{cap.usage.cachedTokens}",
+    "thoughts_tokens": "{cap.usage.thoughtsTokens}",
+    "total_tokens": "{cap.usage.totalTokens}"
+  },
+  "cost": {
+    "currency": "{cap.budget.currency}",
+    "total_micros": "{cap.cost.total.micros}",
+    "charged_request_leg_micros": "{cap.charged.request.micros}",
+    "charged_response_leg_micros": "{cap.cost.delta.micros}",
+    "basis": "{cap.cost.basis}"
+  },
+  "budget": {
+    "period_day": "{cap.period.day}",
+    "period_month": "{cap.period.month}",
+    "remaining_after_micros": "{cap.budget.remainingAfter.micros}",
+    "counters": {cap.budget.report}
+  },
+  "outcome": {
+    "status_code": "{response.status.code}",
+    "decision": "{cap.decision.reason}",
+    "denied": "{cap.decision.deny}",
+    "breached_limit": "{cap.decision.breachedLimit}",
+    "counter_degraded": "{cap.counter.degraded}",
+    "stream_events": "{cap.stream.events}",
+    "stream_usage_missing": "{cap.stream.usageMissing}"
+  }
+}</Message>
+        <ResourceType>api</ResourceType>
+    </CloudLogging>
+</MessageLogging>

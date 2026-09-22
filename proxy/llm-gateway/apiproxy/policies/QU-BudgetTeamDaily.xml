@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Quota continueOnError="true" enabled="true" name="QU-BudgetTeamDaily" type="flexi">
+    <DisplayName>Budget - team, daily</DisplayName>
+    <!--
+      Same mechanism as QU-BudgetUserDaily; read that policy first.
+
+      WHY A TEAM LIMIT ON TOP OF PER-USER LIMITS
+      ==========================================
+      Per-user caps bound the individual but say nothing about the aggregate. A
+      team of 200 people each capped at 20 units/day is a team capped at 4,000
+      units/day, which is a number nobody chose and nobody is watching. Worse, the
+      aggregate moves every time someone joins.
+
+      This counter makes the group figure explicit and enforceable, and it is the
+      one that maps onto how budgets are actually allocated inside an organisation
+      - by department, not by person.
+
+      The identifier deliberately omits the tier. A team budget is a property of
+      the team, and mixing tiers into the key would silently split one team budget
+      into several.
+    -->
+    <Identifier ref="cap.key.team.daily"/>
+    <Allow countRef="cap.budget.team.daily.micros" count="0"/>
+    <Interval>2</Interval>
+    <TimeUnit>day</TimeUnit>
+    <MessageWeight ref="cap.weight.micros"/>
+    <Distributed>true</Distributed>
+    <Synchronous>true</Synchronous>
+</Quota>
